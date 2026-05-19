@@ -1,0 +1,54 @@
+"""Quy tắc phân quyền theo vai trò / chức vụ (tránh lặp chuỗi ở views)."""
+
+
+def la_nhan_vien_ban_thuoc(user) -> bool:
+    """Nhân viên quầy thuốc: vai_tro NHAN_VIEN và NhanVien.chuc_vu == BAN_THUOC."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False) or getattr(user, 'vai_tro', None) == 'ADMIN':
+        return True
+    if getattr(user, 'vai_tro', None) != 'NHAN_VIEN':
+        return False
+    nv = getattr(user, 'nhan_vien', None)
+    return nv is not None and getattr(nv, 'chuc_vu', None) == 'BAN_THUOC'
+
+
+def la_nhan_vien_quay_ban_thuoc(user) -> bool:
+    """Chỉ nhân viên quầy bán thuốc (không tính admin/superuser) — dùng cho danh sách toa đã bán."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'vai_tro', None) != 'NHAN_VIEN':
+        return False
+    nv = getattr(user, 'nhan_vien', None)
+    return nv is not None and getattr(nv, 'chuc_vu', None) == 'BAN_THUOC'
+
+
+def la_quan_ly_kho(user) -> bool:
+    """Nhân viên quản lý kho: vai_tro NHAN_VIEN và NhanVien.chuc_vu == KHO."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False) or getattr(user, 'vai_tro', None) == 'ADMIN':
+        return True
+    if getattr(user, 'vai_tro', None) != 'NHAN_VIEN':
+        return False
+    nv = getattr(user, 'nhan_vien', None)
+    return nv is not None and getattr(nv, 'chuc_vu', None) == 'KHO'
+
+
+def la_ke_toan(user) -> bool:
+    """Nhân viên kế toán: vai_tro NHAN_VIEN và NhanVien.chuc_vu == KE_TOAN."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False) or getattr(user, 'vai_tro', None) == 'ADMIN':
+        return True
+    if getattr(user, 'vai_tro', None) != 'NHAN_VIEN':
+        return False
+    nv = getattr(user, 'nhan_vien', None)
+    return nv is not None and getattr(nv, 'chuc_vu', None) == 'KE_TOAN'
+
+
+def la_admin_he_thong(user) -> bool:
+    """Admin hoặc superuser (CRUD danh mục thuốc/vaccine trong admin panel)."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    return bool(getattr(user, 'is_superuser', False) or getattr(user, 'vai_tro', None) == 'ADMIN')
