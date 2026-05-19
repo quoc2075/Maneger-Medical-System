@@ -1,0 +1,9 @@
+git clone https://github.com/quoc2075/Maneger-Medical-System.git
+cd Maneger-Medical-System
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy be\.env.example be\.env
+cd be
+python manage.py migrate
+python manage.py runserver
