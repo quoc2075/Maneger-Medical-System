@@ -360,16 +360,20 @@ const PageBacSiDashboard = {
         <div class="card-header"><div class="card-title">Lịch hôm nay (do lễ tân / hệ thống xếp)</div></div>
         <div class="card-body p-0" id="bs-ds-hom-nay"><p class="text-muted small p-3 mb-0">Đang tải…</p></div>
       </div>
-      <div class="card">
-        <div class="card-header"><div class="card-title">Tìm hồ sơ</div></div>
+      <div class="card bs-hs-card mb-0">
+        <div class="card-header"><div class="card-title">Tìm hồ sơ bệnh nhân</div></div>
         <div class="card-body">
-          <p class="text-muted small mb-2">Tìm theo <strong>mã BN</strong>, <strong>họ tên</strong> hoặc <strong>số điện thoại</strong>.</p>
-          <div class="input-group mb-3" style="max-width:520px">
-            <input id="bs-tim-bn" class="form-control" placeholder="VD: BN2024001, họ tên, số điện thoại…" value="${qVal}"/>
-            <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._timHoSo()">Tìm</button>
+          <p class="bs-hs-intro">Nhập <strong>mã BN</strong>, <strong>họ tên</strong> hoặc <strong>số điện thoại</strong> để xem các lần khám và mở chi tiết hồ sơ.</p>
+          <div class="bs-hs-search-row">
+            <div class="bs-hs-input-wrap">
+              <i class="fas fa-search bs-hs-input-icon" aria-hidden="true"></i>
+              <input id="bs-tim-bn" class="form-control w-full" placeholder="VD: BN2024001, họ tên, số điện thoại…" value="${qVal}" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();PageBacSiDashboard._timHoSo();}"/>
+            </div>
+            <button type="button" class="bs-hs-btn-search" onclick="PageBacSiDashboard._timHoSo()"><i class="fas fa-search" aria-hidden="true"></i> Tìm</button>
           </div>
-          <div id="bs-hs-pick" class="mb-3"></div>
-          <div id="bs-hs-detail" class="mt-2"></div>
+          <p class="bs-hs-hint">Gợi ý: dùng mã BN chính xác nếu có nhiều bệnh nhân trùng tên.</p>
+          <div id="bs-hs-pick" class="bs-hs-results"></div>
+          <div id="bs-hs-detail"></div>
         </div>
       </div>`);
     await this._loadDsLichHomNay();
@@ -391,27 +395,56 @@ const PageBacSiDashboard = {
     const box = document.getElementById('bs-hs-pick');
     if (!box) return;
     if (!ok) {
-      box.innerHTML = '<p class="text-danger">Không tải được danh sách.</p>';
+      box.innerHTML = `<div class="bs-hs-error" role="alert">
+        <i class="fas fa-exclamation-circle" style="font-size:22px;margin-bottom:10px;opacity:.9" aria-hidden="true"></i>
+        <span>Không tải được danh sách. Kiểm tra kết nối hoặc thử lại sau.</span>
+      </div>`;
       return;
     }
     if (!list.length) {
-      box.innerHTML = '<p class="text-muted">Không có hồ sơ phù hợp.</p>';
+      box.innerHTML = `<div class="bs-hs-empty">
+        <i class="fas fa-folder-open" style="font-size:32px;margin-bottom:10px;opacity:.25" aria-hidden="true"></i>
+        <span style="font-weight:600;color:var(--c-text-secondary)">Không có hồ sơ phù hợp</span>
+        <span style="font-size:12px;margin-top:6px;max-width:320px">Thử từ khóa khác (mã BN, họ tên hoặc số điện thoại).</span>
+      </div>`;
       return;
     }
     if (list[0].benh_nhan) this._benhNhanId = this._idStr(list[0].benh_nhan);
     box.innerHTML = `
-      <p class="small text-muted mb-1">Tìm thấy ${list.length} lần khám — chọn để xem chi tiết:</p>
-      <ul class="list-group">
+      <div class="bs-hs-results-head">
+        <span class="bs-hs-results-title">Kết quả tìm kiếm</span>
+        <span class="bs-hs-badge">${list.length} lần khám</span>
+      </div>
+      <div class="bs-hs-table-wrap">
+        <table class="bs-hs-table">
+          <thead>
+            <tr>
+              <th scope="col">Mã hồ sơ</th>
+              <th scope="col">Ngày khám</th>
+              <th scope="col">Bệnh nhân</th>
+              <th scope="col">Mã BN</th>
+              <th scope="col" class="bs-hs-th-action">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
         ${list
           .map(
-            (h) => `<li class="list-group-item d-flex justify-content-between align-items-start flex-wrap gap-2">
-          <span><strong>${this._esc(h.ma_hs)}</strong> — ${this._esc((h.ngay_kham || '').toString().slice(0, 16))}
-          <span class="text-muted small d-block">${this._esc(h.ten_benh_nhan || '')} • Mã BN: ${this._esc(h.ma_benh_nhan || '')}</span></span>
-          <button type="button" class="btn btn-sm btn-primary" onclick="PageBacSiDashboard._chonVaXemHoSo('${h.id}','${this._idStr(h.benh_nhan)}')">Xem hồ sơ</button>
-        </li>`
+            (h) => `<tr>
+          <td><span class="bs-hs-code">${this._esc(h.ma_hs || '—')}</span></td>
+          <td>${this._fmtNgayKhamDisplay(h.ngay_kham)}</td>
+          <td>
+            <span class="bs-hs-patient">${this._esc(h.ten_benh_nhan || '—')}</span>
+          </td>
+          <td><span class="bs-hs-code">${this._esc(h.ma_benh_nhan || '—')}</span></td>
+          <td class="bs-hs-td-action">
+            <button type="button" class="bs-hs-btn-view" onclick="PageBacSiDashboard._chonVaXemHoSo('${h.id}','${this._idStr(h.benh_nhan)}')">Xem hồ sơ</button>
+          </td>
+        </tr>`
           )
           .join('')}
-      </ul>`;
+          </tbody>
+        </table>
+      </div>`;
   },
 
   _chonVaXemHoSo(hoSoId, benhNhanId) {
@@ -470,6 +503,12 @@ const PageBacSiDashboard = {
     this._lichHenId = lhId;
   },
 
+  _fmtNgayKhamDisplay(s) {
+    const t = (s == null ? '' : String(s)).trim();
+    if (!t) return '—';
+    return this._esc(t.replace('T', ' ').slice(0, 16));
+  },
+
   _shortText(s, max) {
     const t = (s == null ? '' : String(s)).trim();
     if (!t) return '';
@@ -504,17 +543,29 @@ const PageBacSiDashboard = {
     const sdt = (bn && (bn.so_dien_thoai || bn.nguoi_dung?.so_dien_thoai)) || '';
     const chanLine = this._tomTatChanDoan(h.chan_doan);
     const donN = Array.isArray(h.don_thuoc) ? h.don_thuoc.length : 0;
+    const initial = this._esc(((tenBn || '?').trim().charAt(0) || '?').toUpperCase());
+    const ngayStr = this._fmtNgayKhamDisplay(h.ngay_kham);
+    const chips = [];
+    if (maBn) chips.push(`<span class="bs-hs-chip">Mã BN · ${this._esc(maBn)}</span>`);
+    if (sdt) chips.push(`<span class="bs-hs-chip">Điện thoại · ${this._esc(sdt)}</span>`);
+    if (bn && (bn.ngay_sinh || bn.gioi_tinh)) {
+      chips.push(
+        `<span class="bs-hs-chip">${this._esc([bn.ngay_sinh, bn.gioi_tinh].filter(Boolean).join(' · '))}</span>`
+      );
+    }
 
     return `
-      <div class="border rounded p-3 bg-white">
-        <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
-          <div>
-            <div class="fw-semibold">${this._esc(h.ma_hs || '')}</div>
-            <div class="text-muted small">${this._esc(tenBn)} · Mã BN ${this._esc(maBn)}</div>
-            ${sdt ? `<div class="text-muted small">ĐT: ${this._esc(sdt)}</div>` : ''}
-            ${bn && (bn.ngay_sinh || bn.gioi_tinh) ? `<div class="text-muted small">${this._esc([bn.ngay_sinh, bn.gioi_tinh].filter(Boolean).join(' · '))}</div>` : ''}
+      <div class="bs-hs-detail">
+        <div class="bs-hs-detail-head">
+          <div class="bs-hs-detail-identity">
+            <div class="bs-hs-detail-avatar" aria-hidden="true">${initial}</div>
+            <div class="bs-hs-detail-meta">
+              <div class="bs-hs-detail-ma">${this._esc(h.ma_hs || '')}</div>
+              <div class="bs-hs-detail-name">${this._esc(tenBn || '—')}</div>
+              <div class="bs-hs-detail-chips">${chips.join('')}</div>
+            </div>
           </div>
-          <div class="btn-group btn-group-sm flex-wrap">
+          <div class="bs-hs-detail-actions">
             <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._chuyenNhapChanDoan()">Nhập chẩn đoán</button>
             <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')">Kê đơn</button>
             <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">XN / Tiêm</button>
@@ -522,15 +573,17 @@ const PageBacSiDashboard = {
             <button type="button" class="btn btn-outline-danger" onclick="PageBacSiDashboard._hoanTatKham()">Hoàn tất khám</button>
           </div>
         </div>
-        <dl class="row small mb-0">
-          <dt class="col-sm-3">Ngày khám</dt><dd class="col-sm-9">${this._esc((h.ngay_kham || '').toString().slice(0, 16) || '—')}</dd>
-          <dt class="col-sm-3">Lý do khám</dt><dd class="col-sm-9">${this._esc(this._shortText(h.ly_do_kham, 400) || '—')}</dd>
-          <dt class="col-sm-3">Triệu chứng</dt><dd class="col-sm-9">${this._esc(this._shortText(h.trieu_chung, 400) || '—')}</dd>
-          <dt class="col-sm-3">KQ khám lâm sàng</dt><dd class="col-sm-9">${this._esc(this._shortText(h.ket_qua_kham_lam_sang, 400) || '—')}</dd>
-          <dt class="col-sm-3">Chẩn đoán</dt><dd class="col-sm-9">${chanLine ? this._esc(chanLine) : '<span class="text-muted">Chưa ghi chẩn đoán</span>'}</dd>
-          <dt class="col-sm-3">Đơn thuốc</dt><dd class="col-sm-9">${donN ? `${donN} đơn` : '<span class="text-muted">Chưa có</span>'}</dd>
-        </dl>
-        ${bn && bn.dia_chi ? `<p class="small text-muted mb-0 mt-2"><strong>Địa chỉ:</strong> ${this._esc(this._shortText(bn.dia_chi, 200))}</p>` : ''}
+        <div class="bs-hs-detail-body">
+          <dl class="bs-hs-dl">
+            <dt>Ngày khám</dt><dd>${ngayStr}</dd>
+            <dt>Lý do khám</dt><dd>${this._esc(this._shortText(h.ly_do_kham, 400) || '—')}</dd>
+            <dt>Triệu chứng</dt><dd>${this._esc(this._shortText(h.trieu_chung, 400) || '—')}</dd>
+            <dt>KQ khám lâm sàng</dt><dd>${this._esc(this._shortText(h.ket_qua_kham_lam_sang, 400) || '—')}</dd>
+            <dt>Chẩn đoán</dt><dd>${chanLine ? this._esc(chanLine) : '<span class="bs-hs-dd-muted">Chưa ghi chẩn đoán</span>'}</dd>
+            <dt>Đơn thuốc</dt><dd>${donN ? `${donN} đơn` : '<span class="bs-hs-dd-muted">Chưa có</span>'}</dd>
+          </dl>
+          ${bn && bn.dia_chi ? `<div class="bs-hs-detail-footer"><strong>Địa chỉ</strong> — ${this._esc(this._shortText(bn.dia_chi, 300))}</div>` : ''}
+        </div>
       </div>`;
   },
 

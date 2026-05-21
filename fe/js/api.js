@@ -447,20 +447,31 @@ const Toast = {
   hien(tieu, noi = '', loai = 'info', thoiGian = 4000) {
     const container = this._layContainer();
     const icons = {
-      success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️',
+      success: 'fa-circle-check',
+      error: 'fa-circle-xmark',
+      warning: 'fa-triangle-exclamation',
+      info: 'fa-circle-info',
     };
     const el = document.createElement('div');
     el.className = `toast ${loai}`;
+    el.setAttribute('role', 'alert');
     el.innerHTML = `
-      <span class="toast-icon">${icons[loai] || '🔔'}</span>
+      <span class="toast-icon"><i class="fas ${icons[loai] || 'fa-bell'}"></i></span>
       <div class="toast-body">
         <div class="toast-title">${tieu}</div>
         ${noi ? `<div class="toast-msg">${noi}</div>` : ''}
       </div>
-      <button class="toast-close" onclick="this.closest('.toast').remove()">✕</button>
+      <button type="button" class="toast-close" aria-label="Đóng" onclick="this.closest('.toast').remove()"><i class="fas fa-xmark"></i></button>
     `;
     container.appendChild(el);
-    if (thoiGian > 0) setTimeout(() => el.remove(), thoiGian);
+    if (thoiGian > 0) {
+      setTimeout(() => {
+        el.style.transition = 'opacity 0.28s ease, transform 0.28s ease';
+        el.style.opacity = '0';
+        el.style.transform = 'translateX(100%)';
+        setTimeout(() => el.remove(), 280);
+      }, thoiGian);
+    }
     return el;
   },
 

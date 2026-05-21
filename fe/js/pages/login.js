@@ -156,103 +156,10 @@ const PageDangNhap = {
         </div>
       </div>
 
-      <style>
-        .auth-page {
-          min-height: 100vh;
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          background: var(--c-white);
-        }
-        .auth-left {
-          background: linear-gradient(155deg, var(--c-navy) 0%, var(--c-navy-mid) 50%, var(--c-navy-light) 100%);
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-          padding: 60px 50px;
-          position: relative; overflow: hidden;
-        }
-        .auth-left::before {
-          content: '';
-          position: absolute;
-          width: 500px; height: 500px; border-radius: 50%;
-          background: rgba(255,255,255,.03);
-          top: -150px; right: -150px;
-        }
-        .auth-left::after {
-          content: '';
-          position: absolute;
-          width: 350px; height: 350px; border-radius: 50%;
-          background: rgba(0,201,167,.06);
-          bottom: -100px; left: -100px;
-        }
-        .auth-brand {
-          display: flex; align-items: center; gap: 14px;
-          margin-bottom: 52px; z-index: 1;
-        }
-        .auth-brand-icon {
-          width: 60px; height: 60px;
-          background: rgba(255,255,255,.12);
-          border-radius: 16px;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 28px;
-          border: 1px solid rgba(255,255,255,.15);
-          backdrop-filter: blur(8px);
-        }
-        .auth-brand h1 { font-size: 36px; color: white; }
-        .auth-features { list-style: none; z-index: 1; width: 100%; }
-        .auth-features li {
-          display: flex; align-items: center; gap: 14px;
-          color: rgba(255,255,255,.8);
-          font-size: 14px; font-weight: 600;
-          margin-bottom: 18px;
-        }
-        .auth-feature-icon {
-          width: 38px; height: 38px; border-radius: 10px;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 18px; flex-shrink: 0;
-        }
-        .auth-footnote {
-          margin-top: auto; padding-top: 32px;
-          text-align: center;
-          color: rgba(255,255,255,.3);
-          font-size: 11px; letter-spacing: .5px;
-          z-index: 1; line-height: 1.8;
-        }
-        .auth-right {
-          display: flex; align-items: center; justify-content: center;
-          padding: 48px 60px; background: var(--c-bg);
-        }
-        .auth-box {
-          width: 100%; max-width: 440px;
-          background: var(--c-white);
-          border-radius: var(--radius-xl);
-          box-shadow: var(--shadow-lg);
-          padding: 32px;
-        }
-        .auth-tabs {
-          display: flex; gap: 4px;
-          background: var(--c-bg); border-radius: var(--radius-md);
-          padding: 4px; margin-bottom: 28px;
-        }
-        .auth-tab {
-          flex: 1; padding: 10px 12px;
-          border-radius: var(--radius-sm);
-          font-size: 13px; font-weight: 700;
-          color: var(--c-muted);
-          transition: all var(--t-fast);
-          display: flex; align-items: center; justify-content: center; gap: 6px;
-        }
-        .auth-tab.active {
-          background: var(--c-white);
-          color: var(--c-navy-light);
-          box-shadow: var(--shadow-sm);
-        }
-        @media (max-width: 900px) {
-          .auth-page { grid-template-columns: 1fr; }
-          .auth-left { display: none; }
-          .auth-right { padding: 24px; }
-        }
-      </style>
+      <!-- auth styles: css/auth.css -->
     `;
+
+    if (window.UIEnhance) window.UIEnhance.bindThemeToggles();
 
     // Focus field đầu tiên
     setTimeout(() => document.getElementById('dn-tai-khoan')?.focus(), 100);
