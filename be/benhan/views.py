@@ -41,6 +41,27 @@ def _quyen_chinh_sua_ho_so(user, ho_so):
     return False
 
 
+def _loc_ho_so_theo_ngay_kham(queryset, tu_ngay=None, den_ngay=None):
+    """Lọc ngay_kham theo TIME_ZONE — không dùng __date trên DateTimeField (MySQL + USE_TZ hay trả 0 dòng)."""
+    from phongkham.time_utils import bounds_for_local_days
+
+    tu = (str(tu_ngay).strip()[:10] if tu_ngay else '')
+    den = (str(den_ngay).strip()[:10] if den_ngay else '')
+    if not tu and not den:
+        return queryset
+    try:
+        if tu and den:
+            lo, hi = bounds_for_local_days(tu, den)
+            return queryset.filter(ngay_kham__gte=lo, ngay_kham__lte=hi)
+        if tu:
+            lo, _ = bounds_for_local_days(tu, tu)
+            return queryset.filter(ngay_kham__gte=lo)
+        _, hi = bounds_for_local_days(den, den)
+        return queryset.filter(ngay_kham__lte=hi)
+    except (ValueError, TypeError):
+        return queryset.none()
+
+
 class HoSoBenhAnPagination(PageNumberPagination):
     """Cho phép ?page_size= khi lọc theo bệnh nhân (bác sĩ xem nhiều lần khám)."""
     page_size = 20
@@ -76,13 +97,10 @@ class HoSoBenhAnViewSet(viewsets.ModelViewSet):
         """Custom queryset với filter đặc biệt"""
         queryset = _loc_theo_quyen_benh_nhan(super().get_queryset(), self.request.user)
         
-        # Filter theo ngày
+        # Filter theo ngày khám (datetime theo múi giờ phòng khám)
         tu_ngay = self.request.query_params.get('tu_ngay')
         den_ngay = self.request.query_params.get('den_ngay')
-        if tu_ngay:
-            queryset = queryset.filter(ngay_kham__date__gte=tu_ngay)
-        if den_ngay:
-            queryset = queryset.filter(ngay_kham__date__lte=den_ngay)
+        queryset = _loc_ho_so_theo_ngay_kham(queryset, tu_ngay, den_ngay)
         
         # Filter theo bệnh nhân (UUID khóa benh_nhan)
         benh_nhan_id = self.request.query_params.get('benh_nhan')

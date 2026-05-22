@@ -10,7 +10,6 @@ const PageBenhNhanDashboard = {
       'don-thuoc': 'dt',
       'mua-thuoc': 'mt',
       'don-hang': 'dh',
-      chat: 'chat',
     };
     const cur = map[trang] || 'dash';
     document.querySelectorAll('[data-bn-nav]').forEach((b) => {
@@ -29,8 +28,7 @@ const PageBenhNhanDashboard = {
       <button type="button" class="nav-item" data-bn-nav="lh" onclick="PageBenhNhanDashboard.chuyenTrang('lich-hen')"><i class="fas fa-calendar-check"></i><span>Lịch hẹn</span></button>
       <button type="button" class="nav-item" data-bn-nav="dt" onclick="PageBenhNhanDashboard.chuyenTrang('don-thuoc')"><i class="fas fa-prescription-bottle"></i><span>Đơn thuốc</span></button>
       <button type="button" class="nav-item" data-bn-nav="mt" onclick="PageBenhNhanDashboard.chuyenTrang('mua-thuoc')"><i class="fas fa-pills"></i><span>Mua thuốc</span></button>
-      <button type="button" class="nav-item" data-bn-nav="dh" onclick="PageBenhNhanDashboard.chuyenTrang('don-hang')"><i class="fas fa-box"></i><span>Đơn hàng của tôi</span></button>
-      <button type="button" class="nav-item" data-bn-nav="chat" onclick="PageBenhNhanDashboard.chuyenTrang('chat')"><i class="fas fa-comments"></i><span>Chat bác sĩ</span></button>`;
+      <button type="button" class="nav-item" data-bn-nav="dh" onclick="PageBenhNhanDashboard.chuyenTrang('don-hang')"><i class="fas fa-box"></i><span>Đơn hàng của tôi</span></button>`;
     const notifBtn = `
       <button type="button" class="notification-bell" onclick="PageThongBaoBenhNhan.togglePopup(event)" title="Thông báo" aria-label="Thông báo">
         <i class="fas fa-bell"></i>
@@ -87,11 +85,6 @@ const PageBenhNhanDashboard = {
     if (trang === 'don-thuoc' && window.PageDonThuocBenhNhan?.render) {
       await window.PageDonThuocBenhNhan.render({ benhNhanId: this._benhNhanId, hostElementId: 'benh-nhan-main-content' });
       this._setNavActive('don-thuoc');
-      return;
-    }
-    if (trang === 'chat' && window.PageChatBenhNhan?.render) {
-      await window.PageChatBenhNhan.render({ benhNhanId: this._benhNhanId, hostElementId: 'benh-nhan-main-content' });
-      this._setNavActive('chat');
       return;
     }
     if (trang === 'don-hang') {

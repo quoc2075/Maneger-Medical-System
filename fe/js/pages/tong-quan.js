@@ -76,12 +76,11 @@ const PageTongQuan = {
       <div class="card mt-2">
         <div class="card-body">
           <h4 style="margin-bottom:16px;color:var(--c-navy)">Dịch vụ nhanh</h4>
-          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">
             ${[
               { icon:'📅', nhan:'Đặt lịch khám',  trang:'dat-lich',  mau:'#EFF6FF', chu:'#1D4ED8' },
               { icon:'💉', nhan:'Đặt lịch tiêm',  trang:'dat-lich',  mau:'#F0FDF4', chu:'#065F46' },
               { icon:'💊', nhan:'Mua thuốc',       trang:'mua-thuoc', mau:'#FFF7ED', chu:'#9A3412' },
-              { icon:'💬', nhan:'Chat bác sĩ',     trang:'chat',      mau:'#FAF5FF', chu:'#6B21A8' },
             ].map(d => `
               <button class="btn btn-outline" style="flex-direction:column;gap:8px;height:80px;
                        background:${d.mau};border-color:transparent;color:${d.chu}"

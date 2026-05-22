@@ -1160,10 +1160,6 @@ const App = {
                             <div style="font-size: 48px;">💊</div>
                             <h3>Mua thuốc</h3>
                         </div>
-                        <div style="background: white; border-radius: 12px; padding: 20px; text-align: center; cursor: pointer;" onclick="alert('Đang phát triển')">
-                            <div style="font-size: 48px;">💬</div>
-                            <h3>Chat bác sĩ</h3>
-                        </div>
                     </div>
                 </main>
             </div>

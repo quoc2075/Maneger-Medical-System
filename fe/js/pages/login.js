@@ -24,8 +24,6 @@ const PageDangNhap = {
                 Đặt lịch khám và tiêm chủng trực tuyến</li>
             <li><span class="auth-feature-icon" style="background:rgba(59,130,246,.2)">💊</span>
                 Mua thuốc online, giao tận nhà</li>
-            <li><span class="auth-feature-icon" style="background:rgba(245,158,11,.2)">💬</span>
-                Chat trực tiếp với bác sĩ</li>
             <li><span class="auth-feature-icon" style="background:rgba(239,68,68,.2)">📱</span>
                 Nhận SMS nhắc lịch tự động</li>
             <li><span class="auth-feature-icon" style="background:rgba(139,92,246,.2)">🔐</span>

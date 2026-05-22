@@ -9,6 +9,8 @@ const PageBacSiDashboard = {
   _chanDoanDaLuu: false,
   /** Giữ thông tin BN đang khám khi chuyển tab (API không lồng nguoi_dung đầy đủ — dùng ho_ten từ serializer) */
   _patientSnapshot: null,
+  /** true = xem hồ sơ từ Tìm kiếm (chỉ đọc CD + toa), không bật strip Đang khám */
+  _hoSoXemChiTietTraCuu: false,
 
   _esc(s) {
     if (!s) return '';
@@ -104,6 +106,11 @@ const PageBacSiDashboard = {
   _refreshPatientStrip() {
     const el = document.getElementById('bs-patient-strip');
     if (!el) return;
+    if (this._hoSoXemChiTietTraCuu) {
+      el.innerHTML = '';
+      el.style.display = 'none';
+      return;
+    }
     const s = this._patientSnapshot;
     const has = !!(this._hoSoId && s && s.hoSoId);
     if (!has) {
@@ -133,8 +140,9 @@ const PageBacSiDashboard = {
 
   async _moVeHoSoChiTiet() {
     if (!this._hoSoId) return;
+    this._hoSoXemChiTietTraCuu = false;
     await this.chuyenTrang('ho-so');
-    await this._loadChiTietHoSo(this._hoSoId);
+    await this._loadChiTietHoSo(this._hoSoId, { traCuu: false });
   },
 
   async _hoanTatKham() {
@@ -168,20 +176,56 @@ const PageBacSiDashboard = {
   },
 
   /**
-   * Danh sách hồ sơ: tìm theo mã BN, họ tên, SĐT (API tim_kiem — không dùng UUID).
+   * Danh sách hồ sơ: tìm theo mã BN / họ tên / SĐT và/hoặc khoảng ngày khám (tu_ngay, den_ngay).
    */
-  async _dsHoSoTimKiem(q) {
+  async _dsHoSoTimKiem(q, tuNgay, denNgay) {
     const raw = (q || '').trim();
-    if (!raw) return { ok: false, list: [] };
+    const tu = (tuNgay || '').trim();
+    const den = (denNgay || '').trim();
+    if (!raw && !tu && !den) return { ok: false, list: [] };
     const params = new URLSearchParams({
       ordering: '-ngay_kham',
       page_size: '100',
-      tim_kiem: raw,
     });
+    if (raw) params.set('tim_kiem', raw);
+    if (tu) params.set('tu_ngay', tu);
+    if (den) params.set('den_ngay', den);
     const res = await Http.layDanhSach(`/benh-an/ho-so-benh-an/?${params}`);
     const rows = (res.data && res.data.results) || res.data || [];
     const list = Array.isArray(rows) ? rows : [];
     return { ok: res.ok, list };
+  },
+
+  _layBoLocTimHoSo() {
+    const q = document.getElementById('bs-tim-bn')?.value?.trim() || '';
+    const tuNgay = document.getElementById('bs-hs-tu-ngay')?.value?.trim() || '';
+    const denNgay = document.getElementById('bs-hs-den-ngay')?.value?.trim() || '';
+    return { q, tuNgay, denNgay };
+  },
+
+  _hsPresetHomNay() {
+    const t = this._formatDateYMD(new Date());
+    const elTu = document.getElementById('bs-hs-tu-ngay');
+    const elDen = document.getElementById('bs-hs-den-ngay');
+    if (elTu) elTu.value = t;
+    if (elDen) elDen.value = t;
+  },
+
+  _hsPresetThangNay() {
+    const d = new Date();
+    const tu = this._formatDateYMD(new Date(d.getFullYear(), d.getMonth(), 1));
+    const den = this._formatDateYMD(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+    const elTu = document.getElementById('bs-hs-tu-ngay');
+    const elDen = document.getElementById('bs-hs-den-ngay');
+    if (elTu) elTu.value = tu;
+    if (elDen) elDen.value = den;
+  },
+
+  _hsXoaLocNgay() {
+    const elTu = document.getElementById('bs-hs-tu-ngay');
+    const elDen = document.getElementById('bs-hs-den-ngay');
+    if (elTu) elTu.value = '';
+    if (elDen) elDen.value = '';
   },
 
   async render() {
@@ -191,10 +235,8 @@ const PageBacSiDashboard = {
       <button type="button" class="nav-item" data-bs-nav="hs" onclick="PageBacSiDashboard.chuyenTrang('ho-so')"><i class="fas fa-folder-open"></i><span>Hồ sơ bệnh nhân</span></button>
       <button type="button" class="nav-item" data-bs-nav="cd" onclick="PageBacSiDashboard.chuyenTrang('chan-doan')"><i class="fas fa-stethoscope"></i><span>Chẩn đoán</span></button>
       <button type="button" class="nav-item" data-bs-nav="dt" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')"><i class="fas fa-prescription"></i><span>Kê đơn</span></button>
-      <button type="button" class="nav-item" data-bs-nav="cd2" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')"><i class="fas fa-syringe"></i><span>Tiêm / xét nghiệm</span></button>
-      <button type="button" class="nav-item" data-bs-nav="tk" onclick="PageBacSiDashboard.chuyenTrang('tai-kham')"><i class="fas fa-calendar-plus"></i><span>Lịch tái khám</span></button>
-      <button type="button" class="nav-item" data-bs-nav="duyet" onclick="PageBacSiDashboard.chuyenTrang('duyet-thuoc')"><i class="fas fa-pills"></i><span>Duyệt thuốc đặc thù</span></button>
-      <button type="button" class="nav-item" data-bs-nav="chat" onclick="PageBacSiDashboard.chuyenTrang('chat')"><i class="fas fa-comments"></i><span>Chat</span></button>`;
+      <button type="button" class="nav-item" data-bs-nav="cd2" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')"><i class="fas fa-syringe"></i><span>Tiêm chủng</span></button>
+      <button type="button" class="nav-item" data-bs-nav="tk" onclick="PageBacSiDashboard.chuyenTrang('tai-kham')"><i class="fas fa-calendar-plus"></i><span>Lịch tái khám</span></button>`;
     const strip = `
       <div id="bs-patient-strip-wrap" class="mb-3">
         <div id="bs-patient-strip" class="card border-primary shadow-sm" style="display:none"></div>
@@ -221,8 +263,6 @@ const PageBacSiDashboard = {
       'don-thuoc': 'dt',
       'chi-dinh': 'cd2',
       'tai-kham': 'tk',
-      'duyet-thuoc': 'duyet',
-      chat: 'chat',
     };
     const cur = map[trang];
     document.querySelectorAll('[data-bs-nav]').forEach((b) => {
@@ -240,8 +280,6 @@ const PageBacSiDashboard = {
     else if (trang === 'don-thuoc') await this._formDonThuoc(host);
     else if (trang === 'chi-dinh') await this._chiDinh(host);
     else if (trang === 'tai-kham') await this._formTaiKham(host);
-    else if (trang === 'duyet-thuoc') await this._duyetThuoc(host);
-    else if (trang === 'chat') await this._chat(host);
     else await this._tongQuan(host);
     this._refreshPatientStrip();
   },
@@ -296,10 +334,11 @@ const PageBacSiDashboard = {
     this._hoSoId = ho.id;
     this._benhNhanId = this._idStr(ho.benh_nhan) || this._benhNhanId;
     this._chanDoanDaLuu = false;
+    this._hoSoXemChiTietTraCuu = false;
     this._setPatientSnapshotFromHoSo(ho, lichId);
     Toast.hien('Đã mở hồ sơ', ho.ma_hs || '', 'success');
     await this.chuyenTrang('ho-so');
-    await this._loadChiTietHoSo(this._hoSoId);
+    await this._loadChiTietHoSo(this._hoSoId, { traCuu: false });
   },
 
   _trangThaiLich(tt) {
@@ -363,7 +402,7 @@ const PageBacSiDashboard = {
       <div class="card bs-hs-card mb-0">
         <div class="card-header"><div class="card-title">Tìm hồ sơ bệnh nhân</div></div>
         <div class="card-body">
-          <p class="bs-hs-intro">Nhập <strong>mã BN</strong>, <strong>họ tên</strong> hoặc <strong>số điện thoại</strong> để xem các lần khám và mở chi tiết hồ sơ.</p>
+          <p class="bs-hs-intro">Nhập <strong>mã BN</strong>, <strong>họ tên</strong>, <strong>số điện thoại</strong> và/hoặc chọn <strong>ngày khám</strong> (từ — đến) rồi bấm Tìm.</p>
           <div class="bs-hs-search-row">
             <div class="bs-hs-input-wrap">
               <i class="fas fa-search bs-hs-input-icon" aria-hidden="true"></i>
@@ -371,7 +410,22 @@ const PageBacSiDashboard = {
             </div>
             <button type="button" class="bs-hs-btn-search" onclick="PageBacSiDashboard._timHoSo()"><i class="fas fa-search" aria-hidden="true"></i> Tìm</button>
           </div>
-          <p class="bs-hs-hint">Gợi ý: dùng mã BN chính xác nếu có nhiều bệnh nhân trùng tên.</p>
+          <div class="bs-hs-date-row">
+            <div class="bs-hs-date-field">
+              <label class="bs-hs-date-label" for="bs-hs-tu-ngay">Từ ngày</label>
+              <input type="date" id="bs-hs-tu-ngay" class="form-control bs-hs-date-input" onkeydown="if(event.key==='Enter'){event.preventDefault();PageBacSiDashboard._timHoSo();}"/>
+            </div>
+            <div class="bs-hs-date-field">
+              <label class="bs-hs-date-label" for="bs-hs-den-ngay">Đến ngày</label>
+              <input type="date" id="bs-hs-den-ngay" class="form-control bs-hs-date-input" onkeydown="if(event.key==='Enter'){event.preventDefault();PageBacSiDashboard._timHoSo();}"/>
+            </div>
+            <div class="bs-hs-date-presets">
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._hsPresetHomNay()">Hôm nay</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._hsPresetThangNay()">Tháng này</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._hsXoaLocNgay()">Xóa ngày</button>
+            </div>
+          </div>
+          <p class="bs-hs-hint">Có thể chỉ chọn ngày (không cần nhập tên) hoặc kết hợp cả hai. Danh sách kết quả có thanh cuộn khi nhiều lần khám.</p>
           <div id="bs-hs-pick" class="bs-hs-results"></div>
           <div id="bs-hs-detail"></div>
         </div>
@@ -387,13 +441,57 @@ const PageBacSiDashboard = {
     return '';
   },
 
+  _renderHsPickList(list) {
+    const rows = list
+      .map(
+        (h) => `<tr>
+          <td><span class="bs-hs-code">${this._esc(h.ma_hs || '—')}</span></td>
+          <td>${this._fmtNgayKhamDisplay(h.ngay_kham)}</td>
+          <td><span class="bs-hs-patient">${this._esc(h.ten_benh_nhan || '—')}</span></td>
+          <td><span class="bs-hs-code">${this._esc(h.ma_benh_nhan || '—')}</span></td>
+          <td class="bs-hs-td-action">
+            <button type="button" class="bs-hs-btn-view" onclick="PageBacSiDashboard._chonVaXemHoSo('${h.id}','${this._idStr(h.benh_nhan)}')">Xem hồ sơ</button>
+          </td>
+        </tr>`
+      )
+      .join('');
+    return `
+      <div class="bs-hs-results-head">
+        <span class="bs-hs-results-title">Kết quả tìm kiếm</span>
+        <span class="bs-hs-badge">${list.length} lần khám</span>
+      </div>
+      <div class="bs-hs-results-scroll" tabindex="0" aria-label="Danh sách lần khám">
+        <div class="bs-hs-table-wrap">
+          <table class="bs-hs-table">
+            <thead>
+              <tr>
+                <th scope="col">Mã hồ sơ</th>
+                <th scope="col">Ngày khám</th>
+                <th scope="col">Bệnh nhân</th>
+                <th scope="col">Mã BN</th>
+                <th scope="col" class="bs-hs-th-action">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  },
+
   async _timHoSo() {
-    const inp = document.getElementById('bs-tim-bn');
-    const q = inp?.value?.trim();
-    if (!q) return Toast.loi('Nhập mã BN, tên hoặc số điện thoại', '', 'error');
-    const { ok, list } = await this._dsHoSoTimKiem(q);
+    let { q, tuNgay, denNgay } = this._layBoLocTimHoSo();
+    if (!q && !tuNgay && !denNgay) {
+      return Toast.loi('Nhập mã BN / tên / SĐT hoặc chọn ngày khám', '', 'error');
+    }
+    if (tuNgay && !denNgay) denNgay = tuNgay;
+    if (denNgay && !tuNgay) tuNgay = denNgay;
+    if (tuNgay && denNgay && tuNgay > denNgay) {
+      return Toast.loi('Từ ngày không được sau đến ngày', '', 'error');
+    }
     const box = document.getElementById('bs-hs-pick');
     if (!box) return;
+    box.innerHTML = '<p class="text-muted small py-3 mb-0 text-center">Đang tải…</p>';
+    const { ok, list } = await this._dsHoSoTimKiem(q, tuNgay, denNgay);
     if (!ok) {
       box.innerHTML = `<div class="bs-hs-error" role="alert">
         <i class="fas fa-exclamation-circle" style="font-size:22px;margin-bottom:10px;opacity:.9" aria-hidden="true"></i>
@@ -405,53 +503,25 @@ const PageBacSiDashboard = {
       box.innerHTML = `<div class="bs-hs-empty">
         <i class="fas fa-folder-open" style="font-size:32px;margin-bottom:10px;opacity:.25" aria-hidden="true"></i>
         <span style="font-weight:600;color:var(--c-text-secondary)">Không có hồ sơ phù hợp</span>
-        <span style="font-size:12px;margin-top:6px;max-width:320px">Thử từ khóa khác (mã BN, họ tên hoặc số điện thoại).</span>
+        <span style="font-size:12px;margin-top:6px;max-width:320px">Thử từ khóa khác hoặc đổi khoảng ngày khám.</span>
       </div>`;
       return;
     }
     if (list[0].benh_nhan) this._benhNhanId = this._idStr(list[0].benh_nhan);
-    box.innerHTML = `
-      <div class="bs-hs-results-head">
-        <span class="bs-hs-results-title">Kết quả tìm kiếm</span>
-        <span class="bs-hs-badge">${list.length} lần khám</span>
-      </div>
-      <div class="bs-hs-table-wrap">
-        <table class="bs-hs-table">
-          <thead>
-            <tr>
-              <th scope="col">Mã hồ sơ</th>
-              <th scope="col">Ngày khám</th>
-              <th scope="col">Bệnh nhân</th>
-              <th scope="col">Mã BN</th>
-              <th scope="col" class="bs-hs-th-action">Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-        ${list
-          .map(
-            (h) => `<tr>
-          <td><span class="bs-hs-code">${this._esc(h.ma_hs || '—')}</span></td>
-          <td>${this._fmtNgayKhamDisplay(h.ngay_kham)}</td>
-          <td>
-            <span class="bs-hs-patient">${this._esc(h.ten_benh_nhan || '—')}</span>
-          </td>
-          <td><span class="bs-hs-code">${this._esc(h.ma_benh_nhan || '—')}</span></td>
-          <td class="bs-hs-td-action">
-            <button type="button" class="bs-hs-btn-view" onclick="PageBacSiDashboard._chonVaXemHoSo('${h.id}','${this._idStr(h.benh_nhan)}')">Xem hồ sơ</button>
-          </td>
-        </tr>`
-          )
-          .join('')}
-          </tbody>
-        </table>
-      </div>`;
+    box.innerHTML = this._renderHsPickList(list);
   },
 
   _chonVaXemHoSo(hoSoId, benhNhanId) {
-    this._hoSoId = hoSoId;
-    if (benhNhanId) this._benhNhanId = this._idStr(benhNhanId);
-    this._chanDoanDaLuu = false;
-    this._loadChiTietHoSo(hoSoId);
+    this._hoSoXemChiTietTraCuu = true;
+    this._refreshPatientStrip();
+    this._loadChiTietHoSo(hoSoId, { traCuu: true });
+  },
+
+  _dongChiTietTraCuu() {
+    this._hoSoXemChiTietTraCuu = false;
+    const d = document.getElementById('bs-hs-detail');
+    if (d) d.innerHTML = '';
+    this._refreshPatientStrip();
   },
 
   _chonHoSo(hoSoId, benhNhanId) {
@@ -459,10 +529,10 @@ const PageBacSiDashboard = {
     if (benhNhanId) this._benhNhanId = this._idStr(benhNhanId);
   },
 
-  async _loadChiTietHoSo(hoSoId) {
+  async _loadChiTietHoSo(hoSoId, opts = {}) {
+    const traCuu = !!opts.traCuu;
     const id = (hoSoId || '').trim();
     if (!id) return Toast.loi('Thiếu hồ sơ', '', 'error');
-    this._hoSoId = id;
     const res = await Http.layDanhSach(`/benh-an/ho-so-benh-an/${id}/`);
     const d = document.getElementById('bs-hs-detail');
     if (!d) return;
@@ -471,6 +541,21 @@ const PageBacSiDashboard = {
       return;
     }
     const h = res.data;
+
+    if (traCuu) {
+      this._hoSoXemChiTietTraCuu = true;
+      d.innerHTML = this._renderHoSoTomTatTraCuu(h);
+      this._refreshPatientStrip();
+      try {
+        d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (e) {
+        d.scrollIntoView();
+      }
+      return;
+    }
+
+    this._hoSoXemChiTietTraCuu = false;
+    this._hoSoId = id;
     if (h.benh_nhan && typeof h.benh_nhan === 'object') {
       this._benhNhanId = this._idStr(h.benh_nhan.id || h.benh_nhan);
       const nd = h.benh_nhan.nguoi_dung;
@@ -536,6 +621,111 @@ const PageBacSiDashboard = {
     }
   },
 
+  _renderChanDoanDocHtml(chan) {
+    if (!chan) {
+      return '<p class="bs-hs-dd-muted small mb-0">Chưa có chẩn đoán trên hồ sơ này.</p>';
+    }
+    if (typeof chan === 'string') {
+      return `<p class="small mb-0">${this._esc(chan)}</p>`;
+    }
+    const pairs = [
+      ['Tên bệnh', chan.ten_benh],
+      ['Mã ICD-10', chan.ma_icd10],
+      ['Mô tả', chan.mo_ta],
+      ['Kết luận', chan.ket_luan],
+      ['Phương pháp điều trị', chan.phuong_phap_dieu_tri],
+      ['Ghi chú', chan.ghi_chu],
+    ].filter(([, v]) => v != null && String(v).trim() !== '');
+    if (!pairs.length) {
+      const fallback = this._tomTatChanDoan(chan);
+      return fallback
+        ? `<p class="small mb-0">${this._esc(fallback)}</p>`
+        : '<p class="bs-hs-dd-muted small mb-0">Chưa có chẩn đoán.</p>';
+    }
+    return `<dl class="bs-hs-dl">${pairs
+      .map(
+        ([k, v]) =>
+          `<dt>${this._esc(k)}</dt><dd>${this._esc(this._shortText(String(v), 800))}</dd>`
+      )
+      .join('')}</dl>`;
+  },
+
+  _renderToaThuocDocHtml(h) {
+    const dons = Array.isArray(h.don_thuoc) ? h.don_thuoc : [];
+    if (!dons.length) {
+      return '<p class="bs-hs-dd-muted small mb-0">Chưa có toa thuốc trên hồ sơ này.</p>';
+    }
+    return dons
+      .map((don) => {
+        const ma = this._esc(don.ma_don || '');
+        const chuan = don.chuan_doan ? this._esc(this._shortText(don.chuan_doan, 200)) : '';
+        const cts = Array.isArray(don.chi_tiet) ? don.chi_tiet : [];
+        const body = cts.length
+          ? `<table class="table table-sm table-bordered mb-0 small"><thead><tr><th>Thuốc</th><th>SL</th><th>Liều / cách dùng</th></tr></thead><tbody>${cts
+              .map((ct) => {
+                const ten = this._esc(ct.ten_thuoc || ct.ten_thuoc_tu_do || '');
+                const sl = ct.so_luong != null ? this._esc(String(ct.so_luong)) : '—';
+                const lieu = (ct.lieu_dung || '').trim();
+                const cach = (ct.cach_dung_display || ct.cach_dung || '').toString().trim();
+                const thoi = (ct.thoi_diem_display || ct.thoi_diem || '').toString().trim();
+                const cdRaw = [lieu, cach, thoi].filter(Boolean).join(' · ');
+                return `<tr><td>${ten}</td><td>${sl}</td><td>${cdRaw ? this._esc(cdRaw) : '—'}</td></tr>`;
+              })
+              .join('')}</tbody></table>`
+          : '<p class="text-muted small mb-0">Đơn chưa có dòng thuốc.</p>';
+        return `<div class="bs-hs-toa-block"><div class="small fw-semibold mb-1">Toa ${ma}${chuan ? ` <span class="text-muted fw-normal">— ${chuan}</span>` : ''}</div>${body}</div>`;
+      })
+      .join('');
+  },
+
+  _renderHoSoTomTatTraCuu(h) {
+    const bn = typeof h.benh_nhan === 'object' ? h.benh_nhan : null;
+    const tenBn = (bn && (bn.ho_ten || bn.nguoi_dung?.ho_ten)) || h.ten_benh_nhan || '';
+    const maBn = (bn && bn.ma_benh_nhan) || h.ma_benh_nhan || '';
+    const sdt = (bn && (bn.so_dien_thoai || bn.nguoi_dung?.so_dien_thoai)) || '';
+    const initial = this._esc(((tenBn || '?').trim().charAt(0) || '?').toUpperCase());
+    const ngayStr = this._fmtNgayKhamDisplay(h.ngay_kham);
+    const chips = [];
+    if (maBn) chips.push(`<span class="bs-hs-chip">Mã BN · ${this._esc(maBn)}</span>`);
+    if (sdt) chips.push(`<span class="bs-hs-chip">ĐT · ${this._esc(sdt)}</span>`);
+    if (bn && (bn.ngay_sinh || bn.gioi_tinh)) {
+      chips.push(
+        `<span class="bs-hs-chip">${this._esc([bn.ngay_sinh, bn.gioi_tinh].filter(Boolean).join(' · '))}</span>`
+      );
+    }
+
+    return `
+      <div class="bs-hs-detail bs-hs-detail--readonly">
+        <div class="bs-hs-detail-head">
+          <div class="bs-hs-detail-identity">
+            <div class="bs-hs-detail-avatar" aria-hidden="true">${initial}</div>
+            <div class="bs-hs-detail-meta">
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <div class="bs-hs-detail-ma">${this._esc(h.ma_hs || '')}</div>
+                <span class="bs-hs-badge-readonly">Chỉ xem — tra cứu</span>
+              </div>
+              <div class="bs-hs-detail-name">${this._esc(tenBn || '—')}</div>
+              <div class="bs-hs-detail-chips">${chips.join('')}</div>
+              <div class="text-muted small mt-1">Ngày khám: ${ngayStr}</div>
+            </div>
+          </div>
+          <div class="bs-hs-detail-actions">
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._dongChiTietTraCuu()">Tắt</button>
+          </div>
+        </div>
+        <div class="bs-hs-detail-body">
+          <section class="bs-hs-readonly-section">
+            <h4 class="bs-hs-readonly-title">Chẩn đoán</h4>
+            ${this._renderChanDoanDocHtml(h.chan_doan)}
+          </section>
+          <section class="bs-hs-readonly-section">
+            <h4 class="bs-hs-readonly-title">Toa thuốc đã kê</h4>
+            ${this._renderToaThuocDocHtml(h)}
+          </section>
+        </div>
+      </div>`;
+  },
+
   _renderHoSoTomTat(h) {
     const bn = typeof h.benh_nhan === 'object' ? h.benh_nhan : null;
     const tenBn = (bn && (bn.ho_ten || bn.nguoi_dung?.ho_ten)) || h.ten_benh_nhan || '';
@@ -568,7 +758,7 @@ const PageBacSiDashboard = {
           <div class="bs-hs-detail-actions">
             <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._chuyenNhapChanDoan()">Nhập chẩn đoán</button>
             <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')">Kê đơn</button>
-            <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">XN / Tiêm</button>
+            <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">Tiêm chủng</button>
             <button type="button" class="btn btn-outline-secondary" onclick="PageBacSiDashboard._henTaiKhamNhanh()">Hẹn tái khám</button>
             <button type="button" class="btn btn-outline-danger" onclick="PageBacSiDashboard._hoanTatKham()">Hoàn tất khám</button>
           </div>
@@ -861,7 +1051,7 @@ const PageBacSiDashboard = {
               <div class="small text-muted mb-2">Thao tác tiếp theo</div>
               <div class="d-flex flex-wrap gap-2">
                 <button type="button" class="btn btn-sm btn-success" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')">Kê đơn thuốc</button>
-                <button type="button" class="btn btn-sm btn-info text-white" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">Chỉ định xét nghiệm / tiêm</button>
+                <button type="button" class="btn btn-sm btn-info text-white" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">Tiêm chủng</button>
                 <button type="button" class="btn btn-sm btn-secondary" onclick="PageBacSiDashboard._henTaiKhamNhanh()">Hẹn tái khám</button>
               </div>
             </div>
@@ -1213,26 +1403,16 @@ const PageBacSiDashboard = {
       ? `<p class="small fw-semibold text-primary mb-2">${this._esc(ps.tenBn)} — Mã BN ${this._esc(ps.maBn)} — HS ${this._esc(ps.maHs)}</p>`
       : '';
     UI.render(host, `
-      <div class="grid-2">
-        <div class="card"><div class="card-header">Chỉ định tiêm</div><div class="card-body">
-          ${bnLine}
-          <p class="small text-muted">Hồ sơ: <code>${hs || '—'}</code></p>
-          <input id="ti-hs" class="form-control mb-2" type="hidden" value="${hs}"/>
-          <label class="small">Vaccine</label>
-          <select id="ti-vc" class="form-control mb-2"></select>
-          <input id="ti-ngay" class="form-control mb-2" type="date"/>
-          <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._guiTiem()">Lưu</button>
-          <pre id="ti-out" class="mt-2 small"></pre>
-        </div></div>
-        <div class="card"><div class="card-header">Chỉ định xét nghiệm</div><div class="card-body">
-          ${bnLine}
-          <input id="xn-hs" class="form-control mb-2" type="hidden" value="${hs}"/>
-          <textarea id="xn-nd" class="form-control mb-2" rows="3" placeholder="Nội dung chỉ định"></textarea>
-          <input id="xn-date" class="form-control mb-2" type="date"/>
-          <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._guiXn()">Lưu</button>
-          <pre id="xn-out" class="mt-2 small"></pre>
-        </div></div>
-      </div>`);
+      <div class="card"><div class="card-header">Tiêm chủng</div><div class="card-body">
+        ${bnLine}
+        <p class="small text-muted">Hồ sơ: <code>${hs || '—'}</code></p>
+        <input id="ti-hs" class="form-control mb-2" type="hidden" value="${hs}"/>
+        <label class="small">Vaccine</label>
+        <select id="ti-vc" class="form-control mb-2"></select>
+        <input id="ti-ngay" class="form-control mb-2" type="date"/>
+        <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._guiTiem()">Lưu</button>
+        <pre id="ti-out" class="mt-2 small"></pre>
+      </div></div>`);
     await this._taiDanhSachVaccineTiem();
   },
 
@@ -1251,68 +1431,6 @@ const PageBacSiDashboard = {
     if (res.ok) Toast.hien('Đã lưu', '', 'success');
   },
 
-  async _guiXn() {
-    let id = document.getElementById('xn-hs')?.value?.trim() || this._hoSoId;
-    if (!id) return Toast.loi('Chưa có hồ sơ', '', 'error');
-    const body = {
-      noi_dung: document.getElementById('xn-nd').value,
-      ngay_du_kien: document.getElementById('xn-date').value || null,
-    };
-    const res = await Http.tao(`/benh-an/ho-so-benh-an/${id}/chi_dinh_xet_nghiem/`, body);
-    document.getElementById('xn-out').textContent = JSON.stringify(res.data, null, 2);
-    if (res.ok) Toast.hien('Đã lưu chỉ định', '', 'success');
-  },
-
-  async _duyetThuoc(host) {
-    const res = await Http.layDanhSach('/don-hang/don-hang/cho-duyet-thuoc-dac-thu/?limit=50');
-    UI.render(host, `
-      <div class="card"><div class="card-header">Đơn chờ duyệt</div>
-      <div class="card-body" id="bs-duyet"></div></div>`);
-    const el = document.getElementById('bs-duyet');
-    if (!res.ok) {
-      el.innerHTML = '<p>Không tải được.</p>';
-      return;
-    }
-    const items = (res.data && res.data.data && res.data.data.items) || [];
-    el.innerHTML = items.length
-      ? items.map((r) => `<div class="border rounded p-2 mb-2">
-          <strong>${this._esc(r.ma_don_hang)}</strong> — ${this._esc(r.benh_nhan?.ho_ten || '')}
-          <div class="mt-1">
-            <button type="button" class="btn btn-sm btn-success" onclick="PageBacSiDashboard._duyet('${r.id}','DONG_Y')">Đồng ý</button>
-            <button type="button" class="btn btn-sm btn-danger" onclick="PageBacSiDashboard._duyet('${r.id}','TU_CHOI')">Từ chối</button>
-            <a class="btn btn-sm btn-outline" href="#" onclick="PageBacSiDashboard._xemDon('${r.id}');return false">Chi tiết</a>
-          </div>
-          <pre id="don-${r.id}" class="small mt-1"></pre>
-        </div>`).join('')
-      : '<p class="text-muted">Không có đơn chờ duyệt.</p>';
-  },
-
-  async _duyet(donId, ketQua) {
-    const res = await Http.tao(`/don-hang/don-hang/${donId}/duyet-thuoc-dac-thu/`, {
-      ket_qua: ketQua,
-      ghi_chu: '',
-    });
-    Toast.hien('Phản hồi', JSON.stringify(res.data), res.ok ? 'success' : 'error');
-    this.chuyenTrang('duyet-thuoc');
-  },
-
-  async _xemDon(id) {
-    const res = await Http.layDanhSach(`/don-hang/don-hang/${id}/`);
-    const pre = document.getElementById(`don-${id}`);
-    if (pre) pre.textContent = JSON.stringify(res.data, null, 2);
-  },
-
-  async _chat(host) {
-    UI.render(host, `<div id="bs-chat-host"></div>`);
-    if (window.PageChatBenhNhan && PageChatBenhNhan.render) {
-      return PageChatBenhNhan.render({
-        benhNhanId: this._benhNhanId || null,
-        hostElementId: 'bs-chat-host',
-      });
-    }
-    document.getElementById('bs-chat-host').innerHTML =
-      '<p>Chưa tải module chat.</p>';
-  },
 };
 
 window.PageBacSiDashboard = PageBacSiDashboard;
