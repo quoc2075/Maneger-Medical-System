@@ -106,7 +106,44 @@ Dùng để nhớ phạm vi thay đổi, file liên quan và cách kiểm tra nh
 
 ---
 
-## 9. Việc chưa làm / có thể làm thêm
+## 9. Đăng ký ca làm bác sĩ (`doctor_schedule`) — mới
+
+### Database
+- Bảng **`doctor_schedule`**: `bac_si`, `ngay_lam`, `ca_lam` (SANG / CHIEU / TOI), `ghi_chu`.
+- Unique: một BS chỉ đăng ký một lần cho mỗi (ngày, ca).
+- Migration: `be/nguoidung/migrations/0002_doctor_schedule.py` — chạy `python manage.py migrate`.
+
+### Phân ca (giờ VN / TIME_ZONE)
+| Ca | Giờ |
+|----|-----|
+| Sáng | 06:00 – 11:59 |
+| Chiều | 12:00 – 17:59 |
+| Tối | 18:00 – 21:59 |
+
+### API
+| Endpoint | Mô tả |
+|----------|--------|
+| `GET/POST /api/doctor-schedule/` | CRUD; `?my=true` — ca của BS đang đăng nhập |
+| `POST /api/doctor-schedule/dang_ky_nhieu/` | `{ ngay_lam, ca_lam: ['SANG','CHIEU'], ghi_chu? }` |
+| `GET /lich-hen/lich-hen/bac_si_xep_hang/?ngay=&ca_lam=` | Chỉ BS đã đăng ký ca + `is_working` |
+
+### Lễ tân
+- Check-in / lấy số / gán BS: dropdown chỉ BS **đúng ca** (theo giờ hẹn hoặc ca hiện tại).
+- Tự chọn BS walk-in: chỉ chọn trong BS đã đăng ký ca hôm nay; không có ai → lỗi rõ.
+
+### Bác sĩ FE
+- Menu **Đăng ký ca làm** — đăng ký/xóa ca, xem danh sách.
+
+### File
+- `be/nguoidung/models.py` — `DoctorSchedule`
+- `be/nguoidung/doctor_schedule.py` — tiện ích phân ca
+- `be/nguoidung/views.py` — `DoctorScheduleViewSet`
+- `be/lichhen/views.py` — lọc `bac_si_xep_hang`, `walk_in`, `phan_cong_bac_si`
+- `fe/js/pages/bac-si/dashboard.js`, `fe/js/pages/le-tan/dashboard.js`
+
+---
+
+## 10. Việc chưa làm / có thể làm thêm
 
 - Form tiêm chưa cho bác sĩ **chọn tay lô / hạn** (đang FIFO tự động; có thể gửi `lo_vaccine` + `han_su_dung` nếu bổ sung UI).
 - Chống bấm **Lưu tiêm** hai lần (tránh trừ kho 2 lần) — chưa có idempotency.

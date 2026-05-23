@@ -439,6 +439,53 @@ class ThongBaoSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['created_at']
 
+class DoctorScheduleSerializer(serializers.ModelSerializer):
+    """Không dùng source qua bac_si.* để tránh JOIN collation MySQL (doctor_schedule vs bac_si)."""
+    bac_si = serializers.UUIDField(source='bac_si_id', read_only=True)
+    ten_bac_si = serializers.SerializerMethodField()
+    ma_bac_si = serializers.SerializerMethodField()
+    ca_lam_display = serializers.CharField(source='get_ca_lam_display', read_only=True)
+
+    class Meta:
+        model = DoctorSchedule
+        fields = [
+            'id', 'bac_si', 'ma_bac_si', 'ten_bac_si', 'ngay_lam', 'ca_lam',
+            'ca_lam_display', 'ghi_chu', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+    def _bac_si_row(self, obj):
+        if not obj.bac_si_id:
+            return None
+        cached = getattr(obj, '_bac_si_cache', None)
+        if cached is not None:
+            return cached
+        from .models import BacSi
+        row = BacSi.objects.filter(pk=obj.bac_si_id).select_related('nguoi_dung').first()
+        obj._bac_si_cache = row
+        return row
+
+    def get_ten_bac_si(self, obj):
+        bs = self._bac_si_row(obj)
+        return bs.nguoi_dung.ho_ten if bs and bs.nguoi_dung_id else ''
+
+    def get_ma_bac_si(self, obj):
+        bs = self._bac_si_row(obj)
+        return bs.ma_bac_si if bs else ''
+
+
+class DoctorScheduleCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DoctorSchedule
+        fields = ['ngay_lam', 'ca_lam', 'ghi_chu']
+
+    def validate_ca_lam(self, value):
+        valid = {c[0] for c in DoctorSchedule.CA_LAM_CHOICES}
+        if value not in valid:
+            raise serializers.ValidationError('Ca làm phải là SANG, CHIEU hoặc TOI')
+        return value
+
+
 class LichLamViecSerializer(serializers.ModelSerializer):
     """Serializer cho lịch làm việc"""
     ten_nguoi_dung = serializers.CharField(source='nguoi_dung.ho_ten', read_only=True)

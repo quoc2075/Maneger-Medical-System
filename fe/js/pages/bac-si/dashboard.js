@@ -215,7 +215,8 @@ const PageBacSiDashboard = {
       <button type="button" class="nav-item" data-bs-nav="hs" onclick="PageBacSiDashboard.chuyenTrang('ho-so')"><i class="fas fa-folder-open"></i><span>Hồ sơ bệnh nhân</span></button>
       <button type="button" class="nav-item" data-bs-nav="cd" onclick="PageBacSiDashboard.chuyenTrang('chan-doan')"><i class="fas fa-stethoscope"></i><span>Chẩn đoán</span></button>
       <button type="button" class="nav-item" data-bs-nav="dt" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')"><i class="fas fa-prescription"></i><span>Kê đơn</span></button>
-      <button type="button" class="nav-item" data-bs-nav="cd2" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')"><i class="fas fa-syringe"></i><span>Tiêm chủng</span></button>`;
+      <button type="button" class="nav-item" data-bs-nav="cd2" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')"><i class="fas fa-syringe"></i><span>Tiêm chủng</span></button>
+      <button type="button" class="nav-item" data-bs-nav="llv" onclick="PageBacSiDashboard.chuyenTrang('lich-lam')"><i class="fas fa-calendar-plus"></i><span>Đăng ký ca làm</span></button>`;
     const strip = `
       <div id="bs-patient-strip-wrap" class="mb-3">
         <div id="bs-patient-strip" class="card border-primary shadow-sm" style="display:none"></div>
@@ -241,6 +242,7 @@ const PageBacSiDashboard = {
       'chan-doan': 'cd',
       'don-thuoc': 'dt',
       'chi-dinh': 'cd2',
+      'lich-lam': 'llv',
     };
     const cur = map[trang];
     document.querySelectorAll('[data-bs-nav]').forEach((b) => {
@@ -257,6 +259,7 @@ const PageBacSiDashboard = {
     else if (trang === 'chan-doan') await this._formChanDoan(host);
     else if (trang === 'don-thuoc') await this._formDonThuoc(host);
     else if (trang === 'chi-dinh') await this._chiDinh(host);
+    else if (trang === 'lich-lam') await this._lichLamViec(host);
     else await this._tongQuan(host);
     this._refreshPatientStrip();
   },
@@ -1723,6 +1726,414 @@ const PageBacSiDashboard = {
     await this.chuyenTrang('ho-so');
     const el = document.getElementById('bs-ds-hom-nay');
     if (el) await this._loadDsLichHomNay();
+  },
+
+  _formatNgayVN(ymd) {
+    if (!ymd) return '—';
+    const p = String(ymd).split('-');
+    if (p.length !== 3) return ymd;
+    return `${p[2]}/${p[1]}/${p[0]}`;
+  },
+
+  _llvBadgeClass(ca) {
+    if (ca === 'SANG') return 'bs-llv-badge bs-llv-badge--sang';
+    if (ca === 'CHIEU') return 'bs-llv-badge bs-llv-badge--chieu';
+    if (ca === 'TOI') return 'bs-llv-badge bs-llv-badge--toi';
+    return 'bs-llv-badge';
+  },
+
+  _chonNgayLlvPreset(offsetDays) {
+    const d = new Date();
+    d.setDate(d.getDate() + (offsetDays || 0));
+    const el = document.getElementById('bs-llv-ngay');
+    if (el) el.value = this._formatDateYMD(d);
+    const ymd = this._formatDateYMD(d);
+    if (this._llvCalYear != null) {
+      this._llvCalYear = d.getFullYear();
+      this._llvCalMonth = d.getMonth();
+      this._llvCalSelected = ymd;
+      this._renderLlvCalendar();
+    }
+  },
+
+  _llvCalYmd(y, m, day) {
+    return `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  },
+
+  _llvCalMapFromList(list) {
+    const map = {};
+    (list || []).forEach((r) => {
+      const k = r.ngay_lam || '';
+      if (!k) return;
+      if (!map[k]) map[k] = { cas: [], rows: [] };
+      map[k].cas.push(r.ca_lam);
+      map[k].rows.push(r);
+    });
+    return map;
+  },
+
+  _llvCalInitState() {
+    const t = new Date();
+    this._llvCalYear = t.getFullYear();
+    this._llvCalMonth = t.getMonth();
+    this._llvCalSelected = this._formatDateYMD(t);
+    this._llvScheduleList = [];
+    this._llvViewMode = 'cal';
+  },
+
+  _llvCalPrev() {
+    this._llvCalMonth -= 1;
+    if (this._llvCalMonth < 0) {
+      this._llvCalMonth = 11;
+      this._llvCalYear -= 1;
+    }
+    this._renderLlvCalendar();
+  },
+
+  _llvCalNext() {
+    this._llvCalMonth += 1;
+    if (this._llvCalMonth > 11) {
+      this._llvCalMonth = 0;
+      this._llvCalYear += 1;
+    }
+    this._renderLlvCalendar();
+  },
+
+  _llvCalToday() {
+    const t = new Date();
+    this._llvCalYear = t.getFullYear();
+    this._llvCalMonth = t.getMonth();
+    this._llvCalSelected = this._formatDateYMD(t);
+    const el = document.getElementById('bs-llv-ngay');
+    if (el) el.value = this._llvCalSelected;
+    this._renderLlvCalendar();
+  },
+
+  _llvChonNgayTuLich(ymd) {
+    if (!ymd) return;
+    this._llvCalSelected = ymd;
+    const el = document.getElementById('bs-llv-ngay');
+    if (el) el.value = ymd;
+    const p = ymd.split('-');
+    if (p.length === 3) {
+      this._llvCalYear = parseInt(p[0], 10);
+      this._llvCalMonth = parseInt(p[1], 10) - 1;
+    }
+    this._renderLlvCalendar();
+    const form = document.querySelector('.bs-llv-form-card');
+    if (form) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  _llvSetView(mode) {
+    this._llvViewMode = mode === 'list' ? 'list' : 'cal';
+    const calWrap = document.getElementById('bs-llv-schedule-layout');
+    const side = document.getElementById('bs-llv-side-panel');
+    const btnCal = document.getElementById('bs-llv-tab-cal');
+    const btnList = document.getElementById('bs-llv-tab-list');
+    if (btnCal) btnCal.classList.toggle('is-active', this._llvViewMode === 'cal');
+    if (btnList) btnList.classList.toggle('is-active', this._llvViewMode === 'list');
+    if (calWrap) calWrap.classList.toggle('bs-llv-schedule-layout--list-only', this._llvViewMode === 'list');
+    if (side) side.classList.toggle('bs-llv-side-panel--hidden', this._llvViewMode === 'cal');
+    const calCard = document.getElementById('bs-llv-cal-card');
+    if (calCard) calCard.classList.toggle('bs-llv-cal-card--full', this._llvViewMode === 'list');
+  },
+
+  _llvCaLabelShort(ca) {
+    return { SANG: 'S', CHIEU: 'C', TOI: 'T' }[ca] || ca;
+  },
+
+  _renderLlvCalendar() {
+    const gridEl = document.getElementById('bs-llv-cal-grid');
+    const detailEl = document.getElementById('bs-llv-cal-detail');
+    const titleEl = document.getElementById('bs-llv-cal-month-title');
+    if (!gridEl || this._llvCalYear == null) return;
+
+    const y = this._llvCalYear;
+    const m = this._llvCalMonth;
+    const today = this._formatDateYMD(new Date());
+    const map = this._llvCalMapFromList(this._llvScheduleList || []);
+
+    if (titleEl) {
+      const label = new Date(y, m, 1).toLocaleDateString('vi-VN', { month: 'long', year: 'numeric' });
+      titleEl.textContent = label;
+    }
+
+    const firstDow = new Date(y, m, 1).getDay();
+    const startPad = firstDow === 0 ? 6 : firstDow - 1;
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const daysPrev = new Date(y, m, 0).getDate();
+
+    const cells = [];
+    for (let i = 0; i < startPad; i++) {
+      const d = daysPrev - startPad + i + 1;
+      const prevM = m === 0 ? 11 : m - 1;
+      const prevY = m === 0 ? y - 1 : y;
+      cells.push({ pad: true, day: d, ymd: this._llvCalYmd(prevY, prevM, d) });
+    }
+    for (let d = 1; d <= daysInMonth; d++) {
+      cells.push({ pad: false, day: d, ymd: this._llvCalYmd(y, m, d) });
+    }
+    while (cells.length % 7 !== 0) {
+      const d = cells.length - startPad - daysInMonth + 1;
+      const nextM = m === 11 ? 0 : m + 1;
+      const nextY = m === 11 ? y + 1 : y;
+      cells.push({ pad: true, day: d, ymd: this._llvCalYmd(nextY, nextM, d) });
+    }
+
+    const order = ['SANG', 'CHIEU', 'TOI'];
+    gridEl.innerHTML = cells
+      .map((c) => {
+        if (c.pad) {
+          return `<div class="bs-llv-cal-day bs-llv-cal-day--pad"><span class="bs-llv-cal-day-num">${c.day}</span></div>`;
+        }
+        const info = map[c.ymd];
+        const has = info && info.cas.length;
+        const isToday = c.ymd === today;
+        const isSel = c.ymd === this._llvCalSelected;
+        const dots = has
+          ? order
+              .filter((ca) => info.cas.includes(ca))
+              .map(
+                (ca) =>
+                  `<span class="bs-llv-cal-dot bs-llv-cal-dot--${ca.toLowerCase()}" title="${this._esc(this._llvCaTen(ca))}">${this._llvCaLabelShort(ca)}</span>`
+              )
+              .join('')
+          : '';
+        return `<button type="button" class="bs-llv-cal-day${has ? ' bs-llv-cal-day--has' : ''}${isToday ? ' bs-llv-cal-day--today' : ''}${isSel ? ' bs-llv-cal-day--selected' : ''}"
+          onclick="PageBacSiDashboard._llvChonNgayTuLich('${this._esc(c.ymd)}')" aria-label="Ngày ${c.day}">
+          <span class="bs-llv-cal-day-num">${c.day}</span>
+          <div class="bs-llv-cal-day-dots">${dots}</div>
+        </button>`;
+      })
+      .join('');
+
+    if (detailEl) {
+      const sel = this._llvCalSelected;
+      const info = map[sel];
+      if (!sel) {
+        detailEl.innerHTML = '';
+        detailEl.style.display = 'none';
+      } else if (!info || !info.rows.length) {
+        detailEl.style.display = '';
+        detailEl.innerHTML = `
+          <div><strong>${this._esc(this._formatNgayVN(sel))}</strong> — chưa đăng ký ca.</div>
+          <div class="bs-llv-cal-detail-actions">
+            <button type="button" class="btn btn-sm btn-primary" onclick="PageBacSiDashboard._llvChonNgayTuLich('${this._esc(sel)}')">Đăng ký ca ngày này</button>
+          </div>`;
+      } else {
+        detailEl.style.display = '';
+        detailEl.innerHTML = `
+          <div><strong>${this._esc(this._formatNgayVN(sel))}</strong> — ${info.rows.length} ca đã đăng ký:</div>
+          <div class="d-flex flex-wrap gap-2 mt-2 mb-2">
+            ${info.rows.map((r) => `<span class="${this._llvBadgeClass(r.ca_lam)}">${this._esc(r.ca_lam_display || r.ca_lam)}</span>`).join('')}
+          </div>
+          ${info.rows.map((r) => r.ghi_chu ? `<div class="text-muted small">${this._esc(r.ghi_chu)}</div>` : '').join('')}
+          <div class="bs-llv-cal-detail-actions">
+            <button type="button" class="btn btn-sm btn-outline" onclick="PageBacSiDashboard._llvChonNgayTuLich('${this._esc(sel)}')">Sửa / thêm ca</button>
+          </div>`;
+      }
+    }
+  },
+
+  _llvCaTen(ca) {
+    return { SANG: 'Ca sáng', CHIEU: 'Ca chiều', TOI: 'Ca tối' }[ca] || ca;
+  },
+
+  async _lichLamViec(host) {
+    this._llvCalInitState();
+    const today = this._formatDateYMD(new Date());
+    UI.render(host, `
+      <div class="bs-llv-page">
+        <div class="bs-llv-hero">
+          <h2 class="bs-llv-hero-title"><i class="fas fa-calendar-check"></i> Đăng ký ca làm</h2>
+          <p class="bs-llv-hero-desc">Đăng ký ngày và ca trực để lễ tân có thể gán bệnh nhân / lấy số đúng bác sĩ. Mỗi ca một lần đăng ký; có thể chọn nhiều ca trong cùng một ngày.</p>
+        </div>
+
+        <div class="bs-llv-form-card card">
+          <div class="card-header"><div class="card-title">Đăng ký ca mới</div></div>
+          <div class="bs-llv-form-body">
+            <div class="mb-4">
+              <span class="bs-llv-field-label">Ngày làm</span>
+              <div class="bs-llv-date-row">
+                <input type="date" id="bs-llv-ngay" class="form-control" value="${this._esc(today)}"/>
+                <div class="bs-llv-date-presets">
+                  <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._chonNgayLlvPreset(0)">Hôm nay</button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._chonNgayLlvPreset(1)">Ngày mai</button>
+                  <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._chonNgayLlvPreset(7)">+7 ngày</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <span class="bs-llv-field-label">Chọn ca (ít nhất một)</span>
+              <div class="bs-llv-ca-grid">
+                <label class="bs-llv-ca-card bs-llv-ca-card--sang">
+                  <input type="checkbox" id="bs-llv-sang" value="SANG" checked/>
+                  <span class="bs-llv-ca-check" aria-hidden="true"></span>
+                  <span class="bs-llv-ca-icon"><i class="fas fa-sun"></i></span>
+                  <span class="bs-llv-ca-name">Ca sáng</span>
+                  <span class="bs-llv-ca-time">06:00 – 11:59</span>
+                </label>
+                <label class="bs-llv-ca-card bs-llv-ca-card--chieu">
+                  <input type="checkbox" id="bs-llv-chieu" value="CHIEU"/>
+                  <span class="bs-llv-ca-check" aria-hidden="true"></span>
+                  <span class="bs-llv-ca-icon"><i class="fas fa-cloud-sun"></i></span>
+                  <span class="bs-llv-ca-name">Ca chiều</span>
+                  <span class="bs-llv-ca-time">12:00 – 17:59</span>
+                </label>
+                <label class="bs-llv-ca-card bs-llv-ca-card--toi">
+                  <input type="checkbox" id="bs-llv-toi" value="TOI"/>
+                  <span class="bs-llv-ca-check" aria-hidden="true"></span>
+                  <span class="bs-llv-ca-icon"><i class="fas fa-moon"></i></span>
+                  <span class="bs-llv-ca-name">Ca tối</span>
+                  <span class="bs-llv-ca-time">18:00 – 21:59</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="bs-llv-note mb-0">
+              <span class="bs-llv-field-label">Ghi chú (tuỳ chọn)</span>
+              <input type="text" id="bs-llv-ghi-chu" class="form-control" placeholder="VD: Trực phòng khám A, nghỉ giữa ca…"/>
+            </div>
+
+            <div class="bs-llv-actions">
+              <button type="button" class="bs-llv-btn-save" onclick="PageBacSiDashboard._dangKyCaLam()">
+                <i class="fas fa-check"></i> Lưu đăng ký ca
+              </button>
+              <span class="text-muted small">Lễ tân chỉ thấy bác sĩ đã đăng ký đúng ngày &amp; ca.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bs-llv-schedule-layout" id="bs-llv-schedule-layout">
+          <div class="bs-llv-cal-card" id="bs-llv-cal-card">
+            <div class="bs-llv-cal-toolbar">
+              <div class="bs-llv-cal-nav">
+                <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._llvCalPrev()" aria-label="Tháng trước"><i class="fas fa-chevron-left"></i></button>
+                <span class="bs-llv-cal-month-title" id="bs-llv-cal-month-title">—</span>
+                <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._llvCalNext()" aria-label="Tháng sau"><i class="fas fa-chevron-right"></i></button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._llvCalToday()">Hôm nay</button>
+              </div>
+              <div class="bs-llv-cal-legend">
+                <span><i class="leg-sang"></i> Sáng</span>
+                <span><i class="leg-chieu"></i> Chiều</span>
+                <span><i class="leg-toi"></i> Tối</span>
+              </div>
+            </div>
+            <div class="bs-llv-cal-body">
+              <div class="bs-llv-cal-weekdays">
+                <span>T2</span><span>T3</span><span>T4</span><span>T5</span><span>T6</span><span>T7</span><span>CN</span>
+              </div>
+              <div class="bs-llv-cal-grid" id="bs-llv-cal-grid"></div>
+              <div class="bs-llv-cal-detail" id="bs-llv-cal-detail"></div>
+            </div>
+          </div>
+
+          <div class="bs-llv-side-panel" id="bs-llv-side-panel">
+            <div class="bs-llv-list-head">
+              <h3 class="bs-llv-list-title">Chi tiết</h3>
+              <div class="d-flex align-items-center gap-2">
+                <span class="bs-llv-list-count" id="bs-llv-count">…</span>
+                <div class="bs-llv-view-tabs">
+                  <button type="button" id="bs-llv-tab-cal" class="is-active" onclick="PageBacSiDashboard._llvSetView('cal')">Lịch</button>
+                  <button type="button" id="bs-llv-tab-list" onclick="PageBacSiDashboard._llvSetView('list')">Danh sách</button>
+                </div>
+              </div>
+            </div>
+            <div class="bs-llv-list-body" id="bs-llv-list">
+              <div class="page-loading"><div class="spinner"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    await this._taiDanhSachCaLam();
+  },
+
+  async _taiDanhSachCaLam() {
+    const el = document.getElementById('bs-llv-list');
+    const countEl = document.getElementById('bs-llv-count');
+    if (!el) return;
+    const res = await Http.layDanhSach('/doctor-schedule/?my=true&page_size=200&ordering=-ngay_lam,ca_lam');
+    const rows = res.data?.results || res.data || [];
+    const list = Array.isArray(rows) ? rows : [];
+    this._llvScheduleList = list;
+    if (countEl) countEl.textContent = res.ok ? `${list.length} ca` : '—';
+    this._renderLlvCalendar();
+    if (!res.ok) {
+      const chiTiet = this._msgApiLoi(res);
+      const errHtml = `<div class="bs-llv-empty bs-llv-error"><i class="fas fa-exclamation-circle"></i><p>Không tải được lịch ca.${chiTiet ? ` ${this._esc(chiTiet)}` : ''}</p></div>`;
+      el.innerHTML = errHtml;
+      const gridEl = document.getElementById('bs-llv-cal-grid');
+      if (gridEl) gridEl.innerHTML = errHtml;
+      return;
+    }
+    if (!list.length) {
+      el.innerHTML = `
+        <div class="bs-llv-empty">
+          <i class="fas fa-calendar-plus"></i>
+          <p>Chưa có ca nào. Chọn ngày và ca phía trên rồi bấm <strong>Lưu đăng ký ca</strong>.</p>
+        </div>`;
+      return;
+    }
+    const byNgay = {};
+    list.forEach((r) => {
+      const k = r.ngay_lam || '';
+      if (!byNgay[k]) byNgay[k] = [];
+      byNgay[k].push(r);
+    });
+    const ngayKeys = Object.keys(byNgay).sort((a, b) => b.localeCompare(a));
+    el.innerHTML = ngayKeys
+      .map((ngay) => {
+        const items = byNgay[ngay]
+          .map(
+            (r) => `
+          <div class="bs-llv-item">
+            <div class="bs-llv-item-main">
+              <span class="${this._llvBadgeClass(r.ca_lam)}">${this._esc(r.ca_lam_display || r.ca_lam || '')}</span>
+              ${r.ghi_chu ? `<span class="bs-llv-item-note" title="${this._esc(r.ghi_chu)}">${this._esc(r.ghi_chu)}</span>` : ''}
+            </div>
+            <button type="button" class="bs-llv-btn-del" onclick="PageBacSiDashboard._xoaCaLam('${this._esc(r.id)}')">
+              <i class="fas fa-trash-alt"></i> Xóa
+            </button>
+          </div>`
+          )
+          .join('');
+        return `
+        <div class="bs-llv-group">
+          <div class="bs-llv-group-date">${this._esc(this._formatNgayVN(ngay))}</div>
+          ${items}
+        </div>`;
+      })
+      .join('');
+  },
+
+  async _dangKyCaLam() {
+    const ngay = document.getElementById('bs-llv-ngay')?.value;
+    const ca = [];
+    if (document.getElementById('bs-llv-sang')?.checked) ca.push('SANG');
+    if (document.getElementById('bs-llv-chieu')?.checked) ca.push('CHIEU');
+    if (document.getElementById('bs-llv-toi')?.checked) ca.push('TOI');
+    if (!ngay || !ca.length) return Toast.loi('Chọn ngày và ít nhất một ca', '', 'error');
+    const ghiChu = (document.getElementById('bs-llv-ghi-chu')?.value || '').trim();
+    const res = await Http.tao('/doctor-schedule/dang_ky_nhieu/', {
+      ngay_lam: ngay,
+      ca_lam: ca,
+      ghi_chu: ghiChu,
+    });
+    if (!res.ok) {
+      const err = res.data?.error || (res.data?.errors && JSON.stringify(res.data.errors)) || this._msgApiLoi(res);
+      return Toast.loi('Không đăng ký được', err, 'error');
+    }
+    Toast.hien('Đã đăng ký ca', `${ca.length} ca ngày ${ngay}`, 'success');
+    await this._taiDanhSachCaLam();
+  },
+
+  async _xoaCaLam(id) {
+    if (!id || !window.confirm('Xóa đăng ký ca này?')) return;
+    const res = await Http.xoa(`/doctor-schedule/${id}/`);
+    if (!res.ok) return Toast.loi('Không xóa được', this._msgApiLoi(res), 'error');
+    Toast.hien('Đã xóa', '', 'success');
+    await this._taiDanhSachCaLam();
   },
 
   async _taiDanhSachVaccineTiem() {

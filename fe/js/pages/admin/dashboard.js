@@ -2345,19 +2345,15 @@ const AdminDashboard = {
         }
     },
 
-    logout() {
-    console.log('Logging out...');
-    
-    // Hỏi xác nhận
-    //if (confirm('Bạn có chắc muốn đăng xuất?')) {
-        // Xóa token
+    async logout() {
+        const ok = window.Confirm
+            ? await Confirm.dangXuat()
+            : window.confirm('Bạn có chắc muốn đăng xuất?');
+        if (!ok) return;
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
         localStorage.removeItem('user_info');
-        
-        // Chuyển về trang login
         window.location.href = '/login/';
-    //}
     },
     
     async apiPost(url, data) {

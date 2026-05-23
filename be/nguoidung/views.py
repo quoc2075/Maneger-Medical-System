@@ -567,6 +567,98 @@ class ThongBaoViewSet(viewsets.ModelViewSet):
         )
         return Response({'message': 'Đã đánh dấu tất cả đã đọc'})
 
+class DoctorScheduleViewSet(viewsets.ModelViewSet):
+    """Đăng ký ca làm bác sĩ — lưu bảng doctor_schedule."""
+    queryset = DoctorSchedule.objects.all()
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ['bac_si', 'ngay_lam', 'ca_lam']
+    ordering_fields = ['ngay_lam', 'ca_lam', 'created_at']
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return DoctorScheduleCreateSerializer
+        return DoctorScheduleSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        tu = self.request.query_params.get('tu_ngay')
+        den = self.request.query_params.get('den_ngay')
+        if tu:
+            qs = qs.filter(ngay_lam__gte=tu)
+        if den:
+            qs = qs.filter(ngay_lam__lte=den)
+        if self.request.query_params.get('my') == 'true':
+            if getattr(user, 'vai_tro', None) == 'BAC_SI':
+                return qs.filter(bac_si_id=user.pk)
+            return qs.none()
+        if user.is_superuser or getattr(user, 'vai_tro', None) in ('ADMIN', 'NHAN_VIEN'):
+            return qs
+        if getattr(user, 'vai_tro', None) == 'BAC_SI':
+            return qs.filter(bac_si_id=user.pk)
+        return qs.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if getattr(user, 'vai_tro', None) != 'BAC_SI':
+            raise PermissionDenied('Chỉ bác sĩ được đăng ký ca làm')
+        serializer.save(bac_si_id=user.pk)
+
+    def perform_update(self, serializer):
+        if not hasattr(self.request.user, 'bac_si') or serializer.instance.bac_si_id != self.request.user.bac_si.pk:
+            if self.request.user.vai_tro not in ('ADMIN',) and not self.request.user.is_superuser:
+                raise PermissionDenied('Không được sửa ca làm của bác sĩ khác')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        user = self.request.user
+        if hasattr(user, 'bac_si') and instance.bac_si_id == user.bac_si.pk:
+            instance.delete()
+            return
+        if user.is_superuser or getattr(user, 'vai_tro', None) == 'ADMIN':
+            instance.delete()
+            return
+        raise PermissionDenied('Không được xóa ca làm của bác sĩ khác')
+
+    @action(detail=False, methods=['post'], url_path='dang_ky_nhieu')
+    def dang_ky_nhieu(self, request):
+        """Đăng ký nhiều ca trong một ngày: {ngay_lam, ca_lam: ['SANG','CHIEU'], ghi_chu?}."""
+        if getattr(request.user, 'vai_tro', None) != 'BAC_SI':
+            return Response({'error': 'Chỉ bác sĩ đăng ký được'}, status=status.HTTP_403_FORBIDDEN)
+        ngay = request.data.get('ngay_lam')
+        ca_list = request.data.get('ca_lam') or request.data.get('cac_ca') or []
+        if not ngay or not ca_list:
+            return Response(
+                {'error': 'Cần ngay_lam và danh sách ca_lam (SANG/CHIEU/TOI)'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ghi_chu = (request.data.get('ghi_chu') or '').strip()
+        created = []
+        errors = []
+        for ca in ca_list:
+            ser = DoctorScheduleCreateSerializer(
+                data={'ngay_lam': ngay, 'ca_lam': ca, 'ghi_chu': ghi_chu},
+            )
+            if not ser.is_valid():
+                errors.append({ca: ser.errors})
+                continue
+            obj, was_created = DoctorSchedule.objects.get_or_create(
+                bac_si_id=request.user.pk,
+                ngay_lam=ser.validated_data['ngay_lam'],
+                ca_lam=ser.validated_data['ca_lam'],
+                defaults={'ghi_chu': ghi_chu},
+            )
+            if not was_created and ghi_chu:
+                obj.ghi_chu = ghi_chu
+                obj.save(update_fields=['ghi_chu', 'updated_at'])
+            created.append(DoctorScheduleSerializer(obj).data)
+        return Response(
+            {'created': created, 'errors': errors},
+            status=status.HTTP_201_CREATED if created else status.HTTP_400_BAD_REQUEST,
+        )
+
+
 class LichLamViecViewSet(viewsets.ModelViewSet):
     """API cho lịch làm việc"""
     queryset = LichLamViec.objects.select_related('nguoi_dung', 'benh_nhan').all()
@@ -656,6 +748,7 @@ __all__ = [
     'NhanVienViewSet',
     'DanhGiaBacSiViewSet',
     'ThongBaoViewSet',
+    'DoctorScheduleViewSet',
     'LichLamViecViewSet',
     'NhatKyHoatDongViewSet',
     'DashboardViewSet',

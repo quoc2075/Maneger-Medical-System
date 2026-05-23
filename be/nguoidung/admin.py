@@ -331,6 +331,14 @@ class ThongBaoAdmin(admin.ModelAdmin):
         queryset.update(da_xem=True, ngay_xem=timezone.now())
     mark_as_read.short_description = "Đánh dấu đã xem"
 
+@admin.register(DoctorSchedule)
+class DoctorScheduleAdmin(admin.ModelAdmin):
+    list_display = ('bac_si', 'ngay_lam', 'ca_lam', 'ghi_chu', 'created_at')
+    list_filter = ('ca_lam', 'ngay_lam')
+    search_fields = ('bac_si__ma_bac_si', 'bac_si__nguoi_dung__ho_ten')
+    date_hierarchy = 'ngay_lam'
+
+
 @admin.register(LichLamViec)
 class LichLamViecAdmin(admin.ModelAdmin):
     list_display = ('nguoi_dung', 'ngay', 'gio_bat_dau', 'gio_ket_thuc', 'trang_thai', 'benh_nhan')

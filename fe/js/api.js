@@ -519,6 +519,84 @@ const Modal = {
 };
 
 // ══════════════════════════════════════════
+// CONFIRM DIALOG (thay window.confirm)
+// ══════════════════════════════════════════
+const Confirm = {
+  _idMacDinh: 'pk-confirm-dialog',
+
+  hien(opts = {}) {
+    return new Promise((resolve) => {
+      const id = opts.id || this._idMacDinh;
+      const cu = document.getElementById(id);
+      if (cu) cu.remove();
+
+      const tieu = opts.tieu || 'Xác nhận';
+      const noi = opts.noi || '';
+      const nutHuy = opts.huy || 'Huỷ';
+      const nutOk = opts.ok || 'Đồng ý';
+      const loai = opts.loai || 'default';
+      const icon = opts.icon || 'fa-circle-question';
+
+      const el = document.createElement('div');
+      el.className = 'modal-overlay pk-confirm-overlay';
+      el.id = id;
+      el.setAttribute('role', 'alertdialog');
+      el.setAttribute('aria-modal', 'true');
+      el.setAttribute('aria-labelledby', `${id}-title`);
+
+      const dong = (result) => {
+        document.removeEventListener('keydown', onKey);
+        el.classList.remove('open');
+        setTimeout(() => {
+          el.remove();
+          resolve(!!result);
+        }, 220);
+      };
+
+      const onKey = (e) => {
+        if (e.key === 'Escape') dong(false);
+        if (e.key === 'Enter') dong(true);
+      };
+
+      el.innerHTML = `
+        <div class="pk-confirm pk-confirm--${loai}">
+          <div class="pk-confirm-icon" aria-hidden="true"><i class="fas ${icon}"></i></div>
+          <h3 class="pk-confirm-title" id="${id}-title">${tieu}</h3>
+          ${noi ? `<p class="pk-confirm-desc">${noi}</p>` : ''}
+          <div class="pk-confirm-actions">
+            <button type="button" class="pk-confirm-btn pk-confirm-btn--ghost" data-act="cancel">${nutHuy}</button>
+            <button type="button" class="pk-confirm-btn pk-confirm-btn--ok" data-act="ok">${nutOk}</button>
+          </div>
+        </div>`;
+
+      el.querySelector('[data-act="cancel"]').addEventListener('click', () => dong(false));
+      el.querySelector('[data-act="ok"]').addEventListener('click', () => dong(true));
+      el.addEventListener('click', (e) => {
+        if (e.target === el) dong(false);
+      });
+
+      document.body.appendChild(el);
+      document.addEventListener('keydown', onKey);
+      requestAnimationFrame(() => {
+        el.classList.add('open');
+        el.querySelector('[data-act="ok"]')?.focus();
+      });
+    });
+  },
+
+  dangXuat() {
+    return this.hien({
+      tieu: 'Đăng xuất khỏi hệ thống?',
+      noi: 'Phiên làm việc hiện tại sẽ kết thúc. Bạn cần đăng nhập lại để tiếp tục sử dụng PhòngKhám+.',
+      ok: '<i class="fas fa-right-from-bracket"></i> Đăng xuất',
+      huy: 'Ở lại',
+      loai: 'logout',
+      icon: 'fa-right-from-bracket',
+    });
+  },
+};
+
+// ══════════════════════════════════════════
 // ROUTER (Hash-based SPA)
 // ══════════════════════════════════════════
 const Router = {
@@ -1188,13 +1266,12 @@ const App = {
         localStorage.removeItem('userId');
     },
     
-    logout() {
-        if (confirm('Bạn có chắc muốn đăng xuất?')) {
-            this.clearAuthData();
-            // Chuyển hướng về login
-            window.location.href = '/login/';
-        }
-    }
+    async logout() {
+        const ok = await Confirm.dangXuat();
+        if (!ok) return;
+        this.clearAuthData();
+        window.location.href = '/login/';
+    },
 };
 
 // Thêm App vào window
@@ -1235,5 +1312,6 @@ window.Auth    = Auth;
 window.WsManager = WsManager;
 window.Toast   = Toast;
 window.Modal   = Modal;
+window.Confirm = Confirm;
 window.Router  = Router;
 window.UI      = UI;

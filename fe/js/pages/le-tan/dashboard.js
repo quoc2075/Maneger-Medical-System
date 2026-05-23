@@ -24,6 +24,99 @@ const PageLeTanDashboard = {
     return `${y}-${m}-${day}`;
   },
 
+  _layNgayTiepNhan() {
+    return document.getElementById('lt-tn-ngay')?.value?.trim() || this._ngayLocalISO();
+  },
+
+  _layCaTiepNhan() {
+    const sel = document.getElementById('lt-tn-ca')?.value?.trim();
+    if (sel === 'SANG' || sel === 'CHIEU' || sel === 'TOI') return sel;
+    return this._caHienTai();
+  },
+
+  _msgApiLoi(res) {
+    const d = res && res.data;
+    if (d == null) return res?.status ? `HTTP ${res.status}` : 'Không có phản hồi';
+    if (typeof d === 'object' && d.error != null) {
+      return typeof d.error === 'string' ? d.error : JSON.stringify(d.error);
+    }
+    if (d.detail) return String(d.detail);
+    if (d.goi_y) return String(d.goi_y);
+    return JSON.stringify(d);
+  },
+
+  _ltFormatGio(iso) {
+    if (!iso) return '—';
+    const s = String(iso).replace('T', ' ');
+    return s.slice(0, 16);
+  },
+
+  _ltBadgeTrangThai(tt, display) {
+    const label = display || tt || '—';
+    const map = {
+      CHO_XAC_NHAN: 'lt-badge--wait',
+      DA_DAT: 'lt-badge--wait',
+      DA_XAC_NHAN: 'lt-badge--info',
+      CHECKED_IN: 'lt-badge--info',
+      DANG_KHAM: 'lt-badge--wait',
+      HOAN_THANH: 'lt-badge--ok',
+      DA_HUY: 'lt-badge--muted',
+      QUA_HAN: 'lt-badge--muted',
+    };
+    const cls = map[tt] || 'lt-badge--muted';
+    return `<span class="lt-badge ${cls}">${this._esc(label)}</span>`;
+  },
+
+  _ltBadgeLoai(loai, display) {
+    const label = display || loai || '—';
+    const cls = loai === 'TIEM_CHUNG' ? 'lt-badge--tiem' : 'lt-badge--kham';
+    return `<span class="lt-badge ${cls}">${this._esc(label)}</span>`;
+  },
+
+  _ltEmpty(icon, text) {
+    return `<div class="lt-empty"><i class="fas ${this._esc(icon || 'fa-inbox')}"></i><p>${this._esc(text)}</p></div>`;
+  },
+
+  _htmlBangBsTiepNhan(rankRes) {
+    if (!rankRes?.ok) {
+      return `<p class="text-danger small">Không tải danh sách bác sĩ: ${this._esc(this._msgApiLoi(rankRes))}</p>`;
+    }
+    const bsItems = rankRes.data?.items || [];
+    const caLbl = rankRes.data?.ca_lam_display || this._nhanCa(this._layCaTiepNhan());
+    const ngayLbl = rankRes.data?.ngay || this._layNgayTiepNhan();
+    const goiY = rankRes.data?.goi_y || '';
+    const tongKhacCa = rankRes.data?.tong_dang_ky_trong_ngay;
+    if (!bsItems.length) {
+      let extra = goiY ? `<p class="text-warning small mb-2">${this._esc(goiY)}</p>` : '';
+      if (tongKhacCa > 0) {
+        extra += `<p class="text-muted small mb-0">Có ${tongKhacCa} đăng ký ca trong ngày ${this._esc(ngayLbl)} nhưng không đúng ca <strong>${this._esc(caLbl)}</strong> — đổi ca hoặc ngày.</p>`;
+      }
+      return `${this._ltEmpty('fa-user-md', `Chưa có bác sĩ đăng ký ${caLbl} — ${ngayLbl}`)}${extra}`;
+    }
+    return `<div class="lt-bs-rank">
+      ${bsItems
+        .map((x, i) => {
+          const rankCls = i === 0 ? '' : i === 1 ? ' lt-rank-2' : ' lt-rank-3';
+          const cas = (x.cac_ca_trong_ngay || []).map((c) => this._esc(this._nhanCa(c))).join(' · ') || '—';
+          return `<div class="lt-bs-rank-item">
+            <span class="lt-bs-rank-rank${rankCls}">${i + 1}</span>
+            <div>
+              <div class="lt-bs-rank-name">${this._esc(x.ho_ten)}</div>
+              <div class="lt-bs-rank-meta">${this._esc(x.ma_bac_si || '')}${x.chuyen_khoa ? ' · ' + this._esc(x.chuyen_khoa) : ''}</div>
+              <div class="lt-bs-rank-meta">${cas}</div>
+            </div>
+            <span class="lt-bs-rank-count" title="BN trong ngày">${x.so_benh_nhan_trong_ngay}</span>
+          </div>`;
+        })
+        .join('')}
+    </div>`;
+  },
+
+  async _taiLaiBsTiepNhan() {
+    const tab = window.__ltTiepNhanTab || 'co-lich';
+    await this._tiepNhanTab(tab);
+  },
+
   _setNavActive(trang) {
     const map = {
       'tong-quan': 'tq',
@@ -56,9 +149,9 @@ const PageLeTanDashboard = {
       mainHostId: 'le-tan-main',
       userName: hoTen || 'Nhân viên',
       userRoleLabel: 'Lễ tân — Tiếp nhận',
-      contentMaxWidth: '1280px',
+      contentMaxWidth: '1320px',
     });
-    await this.chuyenTrang('tiep-nhan');
+    await this.chuyenTrang('tong-quan');
   },
 
   async chuyenTrang(trang) {
@@ -75,30 +168,82 @@ const PageLeTanDashboard = {
 
   async _tongQuan(host) {
     const today = this._ngayLocalISO();
-    const res = await Http.layDanhSach(
-      `/lich-hen/lich-hen/?hom_nay=true&page_size=100`
-    );
-    const list = res.data?.results || [];
-    const choDen = list.filter((l) =>
-      ['CHO_XAC_NHAN', 'DA_DAT', 'DA_XAC_NHAN', 'QUA_HAN'].includes(l.trang_thai)
-    ).length;
+    const caLbl = this._nhanCa(this._caHienTai());
+    const [resHomNay, resCho, resDp] = await Promise.all([
+      Http.layDanhSach(`/lich-hen/lich-hen/?hom_nay=true&page_size=200`),
+      Http.layDanhSach(`/lich-hen/lich-hen/hom_nay_letan/?chua_check_in=true&page_size=200`),
+      Http.layDanhSach(`/lich-hen/lich-hen/dieu_phoi_hom_nay/?page_size=200`),
+    ]);
+    const list = resHomNay.data?.results || [];
+    const choArr = resCho.data?.results || resCho.data || [];
+    const choList = Array.isArray(choArr) ? choArr : [];
+    const dpArr = resDp.data?.results || resDp.data || [];
+    const dpList = Array.isArray(dpArr) ? dpArr : [];
+    const tong = list.length;
+    const choCheckin = choList.length;
+    const daTiepNhan = dpList.length;
+    const hoanThanh = list.filter((l) => l.trang_thai === 'HOAN_THANH').length;
     UI.render(host, `
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header"><div class="card-title">Hôm nay (${today})</div></div>
-          <div class="card-body">
-            <p><strong>${list.length}</strong> lịch ghi nhận trong hệ thống.</p>
-            <p class="text-muted small">Ước lượng còn chờ tiếp nhận / check-in: <strong>${choDen}</strong>.</p>
-            <button class="btn btn-primary btn-sm mt-2" onclick="PageLeTanDashboard.chuyenTrang('tiep-nhan')">Mở tiếp nhận</button>
+      <div class="lt-page">
+        <header class="lt-hero">
+          <div>
+            <h1 class="lt-hero-title"><i class="fas fa-hospital-user"></i> Quầy lễ tân</h1>
+            <p class="lt-hero-desc">Tổng quan hoạt động tiếp nhận trong ngày — check-in bệnh nhân có hẹn, cấp số thứ tự walk-in và theo dõi hàng chờ theo bác sĩ.</p>
+            <p class="lt-hero-meta"><i class="fas fa-calendar-day"></i> ${this._esc(today)} · ${this._esc(caLbl)}</p>
+          </div>
+          <div class="lt-hero-actions">
+            <button type="button" class="btn lt-btn-hero-light" onclick="PageLeTanDashboard.chuyenTrang('danh-sach')"><i class="fas fa-list"></i> Lịch ngày</button>
+            <button type="button" class="btn btn-primary" onclick="PageLeTanDashboard.chuyenTrang('tiep-nhan')"><i class="fas fa-ticket-alt"></i> Mở tiếp nhận</button>
+          </div>
+        </header>
+
+        <div class="lt-stats">
+          <div class="lt-stat lt-stat--blue">
+            <div class="lt-stat-icon"><i class="fas fa-calendar-check"></i></div>
+            <div>
+              <div class="lt-stat-value">${tong}</div>
+              <div class="lt-stat-label">Lịch hẹn hôm nay</div>
+            </div>
+          </div>
+          <div class="lt-stat lt-stat--amber">
+            <div class="lt-stat-icon"><i class="fas fa-clock"></i></div>
+            <div>
+              <div class="lt-stat-value">${choCheckin}</div>
+              <div class="lt-stat-label">Chờ check-in</div>
+            </div>
+          </div>
+          <div class="lt-stat lt-stat--green">
+            <div class="lt-stat-icon"><i class="fas fa-user-check"></i></div>
+            <div>
+              <div class="lt-stat-value">${daTiepNhan}</div>
+              <div class="lt-stat-label">Đã tiếp nhận / hàng chờ</div>
+            </div>
+          </div>
+          <div class="lt-stat lt-stat--violet">
+            <div class="lt-stat-icon"><i class="fas fa-check-circle"></i></div>
+            <div>
+              <div class="lt-stat-value">${hoanThanh}</div>
+              <div class="lt-stat-label">Hoàn thành khám</div>
+            </div>
           </div>
         </div>
-        <div class="card">
-          <div class="card-header"><div class="card-title">Thao tác tại quầy</div></div>
-          <div class="card-body" style="display:flex;flex-direction:column;gap:8px">
-            <button class="btn btn-outline" onclick="PageLeTanDashboard.chuyenTrang('dang-ky')">Đăng ký bệnh nhân mới</button>
-            <button class="btn btn-outline" onclick="PageLeTanDashboard.chuyenTrang('tiep-nhan')">Check-in / lấy số theo bác sĩ</button>
-            <button class="btn btn-outline" onclick="PageLeTanDashboard.chuyenTrang('danh-sach')">Xem lịch trong ngày</button>
-          </div>
+
+        <div class="lt-quick-grid">
+          <button type="button" class="lt-quick-card" onclick="PageLeTanDashboard.chuyenTrang('tiep-nhan')">
+            <i class="fas fa-clipboard-check"></i>
+            <strong>Tiếp nhận &amp; lấy số</strong>
+            <span>Check-in có hẹn, walk-in khám / tiêm, gán phòng</span>
+          </button>
+          <button type="button" class="lt-quick-card" onclick="PageLeTanDashboard.chuyenTrang('dang-ky')">
+            <i class="fas fa-user-plus"></i>
+            <strong>Đăng ký bệnh nhân</strong>
+            <span>Tạo tài khoản BN mới tại quầy</span>
+          </button>
+          <button type="button" class="lt-quick-card" onclick="PageLeTanDashboard.chuyenTrang('danh-sach')">
+            <i class="fas fa-calendar-alt"></i>
+            <strong>Lịch trong ngày</strong>
+            <span>Tra cứu toàn bộ lịch theo khoảng ngày</span>
+          </button>
         </div>
       </div>`);
   },
@@ -164,42 +309,99 @@ const PageLeTanDashboard = {
     else Toast.loi('Lỗi', (res.data && JSON.stringify(res.data)) || '', 'error');
   },
 
-  async _taiBacSiXepHang(ngay) {
+  _caTuGioHen(iso) {
+    if (!iso) return this._caHienTai();
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return this._caHienTai();
+    const h = d.getHours();
+    if (h < 12) return 'SANG';
+    if (h < 18) return 'CHIEU';
+    return 'TOI';
+  },
+
+  _caHienTai() {
+    const h = new Date().getHours();
+    if (h < 12) return 'SANG';
+    if (h < 18) return 'CHIEU';
+    return 'TOI';
+  },
+
+  _nhanCa(ca) {
+    return { SANG: 'Ca sáng', CHIEU: 'Ca chiều', TOI: 'Ca tối' }[ca] || ca;
+  },
+
+  _bsChoCa(bsItems, ca) {
+    const list = Array.isArray(bsItems) ? bsItems : [];
+    if (!ca) return list;
+    return list.filter((x) => (x.cac_ca_trong_ngay || []).includes(ca));
+  },
+
+  async _taiBacSiXepHang(ngay, caLam) {
     const base = '/lich-hen/lich-hen/bac_si_xep_hang/';
-    return Http.layDanhSach(ngay ? `${base}?ngay=${encodeURIComponent(ngay)}` : base);
+    const q = [];
+    const ngayQ = ngay || this._layNgayTiepNhan();
+    const ca = caLam || this._layCaTiepNhan();
+    q.push(`ngay=${encodeURIComponent(ngayQ)}`);
+    q.push(`ca_lam=${encodeURIComponent(ca)}`);
+    return Http.layDanhSach(`${base}?${q.join('&')}`);
   },
 
   /** Màn hình chính: có hẹn | chưa hẹn lấy số | hàng chờ phòng */
   async _tiepNhan(host) {
-    // Không gửi ngay: server dùng TIME_ZONE (VN), khớp walk-in.
-    const rankRes = await this._taiBacSiXepHang();
-    const bsItems = rankRes.data?.items || [];
+    const ngayMacDinh = this._ngayLocalISO();
+    const caMacDinh = this._caHienTai();
     UI.render(host, `
-      <div class="card mb-2">
-        <div class="card-header"><div class="card-title">Tiếp nhận tại quầy</div></div>
-        <div class="card-body" style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="btn btn-primary btn-sm" id="lt-ci-tab-a" onclick="PageLeTanDashboard._tiepNhanTab('co-lich')">① Có hẹn trước — check-in</button>
-          <button type="button" class="btn btn-outline btn-sm" id="lt-ci-tab-b" onclick="PageLeTanDashboard._tiepNhanTab('lay-so')">② Chưa hẹn — chọn BS &amp; lấy số</button>
-          <button type="button" class="btn btn-outline btn-sm" id="lt-ci-tab-c" onclick="PageLeTanDashboard._tiepNhanTab('hang-cho')">③ Hàng chờ &amp; phòng</button>
+      <div class="lt-page">
+        <header class="lt-hero">
+          <div>
+            <h1 class="lt-hero-title"><i class="fas fa-concierge-bell"></i> Tiếp nhận &amp; lấy số</h1>
+            <p class="lt-hero-desc">Check-in bệnh nhân có hẹn, cấp số walk-in theo bác sĩ đăng ký ca, quản lý hàng chờ và phòng khám.</p>
+          </div>
+        </header>
+
+        <div class="lt-panel-shell">
+          <div class="lt-toolbar">
+            <div class="lt-toolbar-fields">
+              <div class="lt-toolbar-field">
+                <label>Ngày</label>
+                <input type="date" id="lt-tn-ngay" class="form-control" value="${this._esc(ngayMacDinh)}"
+                  onchange="PageLeTanDashboard._taiLaiBsTiepNhan()"/>
+              </div>
+              <div class="lt-toolbar-field">
+                <label>Ca làm</label>
+                <select id="lt-tn-ca" class="form-control" onchange="PageLeTanDashboard._taiLaiBsTiepNhan()">
+                  <option value="SANG" ${caMacDinh === 'SANG' ? 'selected' : ''}>Ca sáng</option>
+                  <option value="CHIEU" ${caMacDinh === 'CHIEU' ? 'selected' : ''}>Ca chiều</option>
+                  <option value="TOI" ${caMacDinh === 'TOI' ? 'selected' : ''}>Ca tối</option>
+                </select>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" onclick="PageLeTanDashboard._taiLaiBsTiepNhan()">
+              <i class="fas fa-sync-alt"></i> Tải lại BS
+            </button>
+          </div>
+          <nav class="lt-tabs" role="tablist">
+            <button type="button" class="lt-tab" id="lt-ci-tab-a" data-lt-tab="co-lich" onclick="PageLeTanDashboard._tiepNhanTab('co-lich')">
+              <span class="lt-tab-num">1</span> Có hẹn — check-in
+            </button>
+            <button type="button" class="lt-tab" id="lt-ci-tab-b" data-lt-tab="lay-so" onclick="PageLeTanDashboard._tiepNhanTab('lay-so')">
+              <span class="lt-tab-num">2</span> Lấy số walk-in
+            </button>
+            <button type="button" class="lt-tab" id="lt-ci-tab-c" data-lt-tab="hang-cho" onclick="PageLeTanDashboard._tiepNhanTab('hang-cho')">
+              <span class="lt-tab-num">3</span> Hàng chờ &amp; phòng
+            </button>
+          </nav>
         </div>
-      </div>
-      <div id="lt-ci-panel"></div>`);
-    window.__ltBsXepHang = bsItems;
+        <div id="lt-ci-panel"></div>
+      </div>`);
     await this._tiepNhanTab('co-lich');
   },
 
   async _tiepNhanTab(which) {
-    const a = document.getElementById('lt-ci-tab-a');
-    const b = document.getElementById('lt-ci-tab-b');
-    const c = document.getElementById('lt-ci-tab-c');
-    const prim = 'btn btn-primary btn-sm';
-    const outl = 'btn btn-outline btn-sm';
-    if (a && b && c) {
-      [a, b, c].forEach((el) => { el.className = outl; });
-      if (which === 'co-lich') a.className = prim;
-      else if (which === 'lay-so') b.className = prim;
-      else c.className = prim;
-    }
+    window.__ltTiepNhanTab = which;
+    document.querySelectorAll('[data-lt-tab]').forEach((el) => {
+      el.classList.toggle('is-active', el.getAttribute('data-lt-tab') === which);
+    });
     if (which === 'lay-so') return this._panelLaySo('lt-ci-panel');
     if (which === 'hang-cho') return this._panelHangCho('lt-ci-panel');
     return this._panelCoHen('lt-ci-panel');
@@ -212,132 +414,153 @@ const PageLeTanDashboard = {
     const list = res.data?.results || res.data || [];
     const arr = Array.isArray(list) ? list : [];
     const rankRes = await this._taiBacSiXepHang();
-    const bsItems = rankRes.data?.items || [];
+    const bsAll = rankRes.data?.items || [];
+    const caLbl = rankRes.data?.ca_lam_display || '';
     const host = document.getElementById(panelId);
     if (!host) return;
+    const cards = arr.length
+      ? arr
+          .map((l) => {
+            const selId = `lt-pc-bs-${l.id}`;
+            const caHen = this._caTuGioHen(l.ngay_gio_hen);
+            const bsItems = this._bsChoCa(bsAll, caHen);
+            return `<article class="lt-appt-card">
+              <div class="lt-appt-top">
+                <div>
+                  <div class="lt-appt-time">${this._esc(this._ltFormatGio(l.ngay_gio_hen))}
+                    <small>${this._esc(this._nhanCa(caHen))}</small>
+                  </div>
+                  <div class="lt-appt-sub">${this._esc(l.ma_lich_hen || '')}</div>
+                </div>
+                <div>${this._ltBadgeTrangThai(l.trang_thai, l.trang_thai_display)}</div>
+              </div>
+              <div class="lt-appt-patient">${this._esc(l.ten_benh_nhan || '')}</div>
+              <div class="lt-appt-sub">${this._esc(l.ma_benh_nhan || '')} · BS: ${this._esc(l.ten_bac_si || '—')}</div>
+              <div class="lt-appt-actions">
+                <button type="button" class="btn btn-sm btn-primary" onclick="PageLeTanDashboard._doCheckIn('${l.id}')">
+                  <i class="fas fa-check"></i> Check-in
+                </button>
+                <select id="${selId}" class="form-control form-control-sm">
+                  <option value="">Gán BS (${this._esc(this._nhanCa(caHen))})</option>
+                  ${bsItems
+                    .map(
+                      (x) =>
+                        `<option value="${this._esc(x.id)}">${this._esc(x.ho_ten)} (${x.so_benh_nhan_trong_ngay})</option>`
+                    )
+                    .join('')}
+                </select>
+                <button type="button" class="btn btn-sm btn-outline" onclick="PageLeTanDashboard._doPhanCong('${l.id}','${selId}')">Gán</button>
+              </div>
+            </article>`;
+          })
+          .join('')
+      : this._ltEmpty('fa-calendar-times', 'Không có lịch chờ check-in hôm nay');
     host.innerHTML = `
-      <div class="card">
-        <div class="card-header"><div class="card-title">Bệnh nhân đã có lịch hôm nay (chưa check-in)</div></div>
-        <div class="card-body" style="overflow:auto">
-          <p class="text-muted small">Nhấn <strong>Check-in</strong> khi BN đến đúng hẹn. Có thể đổi bác sĩ trước khi vào nếu cần.</p>
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>Giờ hẹn</th><th>Mã lịch</th><th>BN</th><th>BS</th><th>TT</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${arr
-                .map((l) => {
-                  const selId = `lt-pc-bs-${l.id}`;
-                  return `<tr>
-                  <td>${this._esc(String(l.ngay_gio_hen || '').replace('T', ' ').slice(0, 16))}</td>
-                  <td>${this._esc(l.ma_lich_hen || '')}</td>
-                  <td>${this._esc(l.ten_benh_nhan || '')}<div class="text-muted small">${this._esc(l.ma_benh_nhan || '')}</div></td>
-                  <td>${this._esc(l.ten_bac_si || '—')}</td>
-                  <td>${this._esc(l.trang_thai_display || l.trang_thai)}</td>
-                  <td style="white-space:nowrap">
-                    <button type="button" class="btn btn-sm btn-primary" onclick="PageLeTanDashboard._doCheckIn('${l.id}')">Check-in</button>
-                    <select id="${selId}" class="form-control form-control-sm d-inline-block" style="max-width:160px;vertical-align:middle">
-                      <option value="">Chọn BS</option>
-                      ${bsItems
-                        .map(
-                          (x) =>
-                            `<option value="${this._esc(x.id)}">${this._esc(x.ho_ten)} (${x.so_benh_nhan_trong_ngay})</option>`
-                        )
-                        .join('')}
-                    </select>
-                    <button type="button" class="btn btn-sm btn-outline" onclick="PageLeTanDashboard._doPhanCong('${l.id}','${selId}')">Gán BS</button>
-                  </td>
-                </tr>`;
-                })
-                .join('')}
-            </tbody>
-          </table>
-          ${!arr.length ? '<p class="text-muted">Không có lịch chờ check-in hôm nay.</p>' : ''}
+      <div class="lt-panel-shell">
+        <div class="lt-panel-head">
+          <h2 class="lt-panel-title"><i class="fas fa-calendar-check"></i> Bệnh nhân có hẹn — chưa check-in</h2>
+          <span class="lt-badge lt-badge--info">${arr.length} lịch</span>
+        </div>
+        <div class="lt-panel-body lt-panel-body--scroll">
+          <p class="text-muted small mb-3">Ca quầy: <strong>${this._esc(caLbl)}</strong>. Chỉ gán bác sĩ đã đăng ký ca trùng giờ hẹn.</p>
+          ${cards}
         </div>
       </div>`;
   },
 
   async _panelLaySo(panelId) {
     const rankRes = await this._taiBacSiXepHang();
-    const bsItems = rankRes.data?.items || [];
+    const bsItems = rankRes.ok ? rankRes.data?.items || [] : [];
+    const caLbl = rankRes.data?.ca_lam_display || this._nhanCa(this._layCaTiepNhan());
+    const ngayLbl = rankRes.data?.ngay || this._layNgayTiepNhan();
     window.__ltBsXepHang = bsItems;
     const host = document.getElementById(panelId);
     if (!host) return;
     host.innerHTML = `
-      <div class="card mb-2">
-        <div class="card-header"><div class="card-title">Thứ tự bác sĩ (ít bệnh nhân trong ngày → nhiều)</div></div>
-        <div class="card-body" style="overflow:auto">
-          <p class="text-muted small">Dùng để chọn bác sĩ còn nhẹ tải. STT lấy theo thứ tự tiếp nhận trong ngày.</p>
-          <table class="table table-sm">
-            <thead><tr><th>TT</th><th>Bác sĩ</th><th>Khoa</th><th>BN trong ngày</th></tr></thead>
-            <tbody>
-              ${bsItems
-                .map(
-                  (x, i) => `<tr>
-                <td>${i + 1}</td>
-                <td>${this._esc(x.ho_ten)} <span class="text-muted small">(${this._esc(x.ma_bac_si)})</span></td>
-                <td>${this._esc(x.chuyen_khoa || '')}</td>
-                <td><strong>${x.so_benh_nhan_trong_ngay}</strong></td>
-              </tr>`
-                )
-                .join('')}
-            </tbody>
-          </table>
-          ${!bsItems.length ? '<p class="text-muted">Không có bác sĩ làm việc.</p>' : ''}
+      <div class="lt-walk-grid">
+        <div class="lt-panel-shell">
+          <div class="lt-panel-head">
+            <h2 class="lt-panel-title"><i class="fas fa-user-md"></i> Bác sĩ trực ca</h2>
+            <span class="lt-badge lt-badge--info">${this._esc(caLbl)} · ${this._esc(ngayLbl)}</span>
+          </div>
+          <div class="lt-panel-body">
+            <p class="text-muted small mb-2">Ưu tiên bác sĩ ít bệnh nhân nhất khi bật tự chọn.</p>
+            ${this._htmlBangBsTiepNhan(rankRes)}
+          </div>
         </div>
-      </div>
-      <div class="card">
-        <div class="card-header"><div class="card-title">Lấy số — BN chưa đặt trước</div></div>
-        <div class="card-body">
-          <p class="text-muted small">Nhập <strong>mã bệnh nhân</strong> (đã đăng ký tại quầy), chọn <strong>Khám bệnh</strong> hoặc <strong>Tiêm chủng</strong> (tiêm cần chọn vaccine). Bật <em>tự chọn bác sĩ</em> để hệ thống gán theo bảng trên; hoặc chọn tay một bác sĩ. Sau khi tạo, BN có STT và trạng thái đã check-in.</p>
-          <div class="grid-2">
-            <div style="grid-column:1/-1">
+
+        <div class="lt-panel-shell">
+          <div class="lt-panel-head">
+            <h2 class="lt-panel-title"><i class="fas fa-ticket-alt"></i> Lấy số walk-in</h2>
+          </div>
+          <div class="lt-panel-body">
+            <div class="lt-form-section">
+              <div class="lt-form-section-title">Bệnh nhân</div>
               <label class="form-label">Mã bệnh nhân *</label>
               <input id="lt-wi-bn" class="form-control" placeholder="VD: BN20260411001"/>
             </div>
-            <div style="grid-column:1/-1">
-              <label class="form-label">Loại tiếp nhận *</label>
-              <div class="d-flex flex-wrap gap-3 mb-1">
-                <label class="form-label mb-0" style="font-weight:normal;cursor:pointer">
+
+            <div class="lt-form-section">
+              <div class="lt-form-section-title">Loại tiếp nhận</div>
+              <div class="lt-loai-pills">
+                <label class="lt-loai-pill">
                   <input type="radio" name="lt-wi-loai" id="lt-wi-loai-kham" value="KHAM_BENH" checked onchange="PageLeTanDashboard._toggleLoaiWalkIn()"/>
-                  Khám bệnh
+                  <span class="lt-loai-pill-inner"><i class="fas fa-stethoscope"></i> Khám bệnh</span>
                 </label>
-                <label class="form-label mb-0" style="font-weight:normal;cursor:pointer">
+                <label class="lt-loai-pill">
                   <input type="radio" name="lt-wi-loai" id="lt-wi-loai-tiem" value="TIEM_CHUNG" onchange="PageLeTanDashboard._toggleLoaiWalkIn()"/>
-                  Tiêm chủng
+                  <span class="lt-loai-pill-inner"><i class="fas fa-syringe"></i> Tiêm chủng</span>
                 </label>
               </div>
             </div>
-            <div id="lt-wi-vaccine-wrap" style="grid-column:1/-1;display:none">
-              <label class="form-label">Vaccine sẽ tiêm *</label>
+
+            <div id="lt-wi-vaccine-wrap" class="lt-form-section" style="display:none">
+              <div class="lt-form-section-title">Vaccine</div>
               <select id="lt-wi-vaccine" class="form-control">
                 <option value="">Đang tải vaccine...</option>
               </select>
             </div>
-            <div style="grid-column:1/-1">
-              <label class="form-label d-block">
-                <input type="checkbox" id="lt-wi-auto" checked/> Tự chọn bác sĩ (ưu tiên BS ít BN trong ngày)
+
+            <div class="lt-form-section">
+              <div class="lt-form-section-title">Phân công bác sĩ</div>
+              <label class="form-label d-block mb-2">
+                <input type="checkbox" id="lt-wi-auto" checked/> Tự chọn BS (ít BN nhất)
               </label>
-            </div>
-            <div style="grid-column:1/-1">
-              <label class="form-label">Hoặc chọn bác sĩ cụ thể (khi tắt tự chọn)</label>
-              <select id="lt-wi-bs" class="form-control">
-                <option value="">—</option>
+              <select id="lt-wi-bs" class="form-control" disabled>
+                <option value="">— Chọn thủ công khi tắt tự chọn —</option>
                 ${bsItems.map((x) => `<option value="${this._esc(x.id)}">${this._esc(x.ho_ten)} (${x.so_benh_nhan_trong_ngay} BN)</option>`).join('')}
               </select>
             </div>
-            <div><label class="form-label">Mã phòng (tuỳ chọn)</label>
-              <input id="lt-wi-mp" class="form-control" placeholder="VD: P01"/></div>
-            <div><label class="form-label">Tên phòng</label>
-              <input id="lt-wi-tp" class="form-control"/></div>
-            <div style="grid-column:1/-1"><label class="form-label">Ghi chú</label>
-              <input id="lt-wi-gc" class="form-control"/></div>
+
+            <div class="lt-form-section">
+              <div class="lt-form-section-title">Phòng (tuỳ chọn)</div>
+              <div class="grid-2">
+                <div><label class="form-label">Mã phòng</label>
+                  <input id="lt-wi-mp" class="form-control" placeholder="P01"/></div>
+                <div><label class="form-label">Tên phòng</label>
+                  <input id="lt-wi-tp" class="form-control"/></div>
+              </div>
+              <label class="form-label mt-2">Ghi chú</label>
+              <input id="lt-wi-gc" class="form-control"/>
+            </div>
+
+            <button type="button" class="lt-btn-primary-lg" style="width:100%" onclick="PageLeTanDashboard._submitLaySo()">
+              <i class="fas fa-check-circle"></i> Xác nhận &amp; lấy số
+            </button>
           </div>
-          <button type="button" class="btn btn-primary mt-2" onclick="PageLeTanDashboard._submitLaySo()">Xác nhận &amp; lấy số</button>
         </div>
       </div>`;
+    const autoCb = document.getElementById('lt-wi-auto');
+    const bsSel = document.getElementById('lt-wi-bs');
+    const syncBsSel = () => {
+      if (bsSel && autoCb) {
+        const on = autoCb.checked;
+        bsSel.disabled = on;
+        if (on) bsSel.value = '';
+      }
+    };
+    if (autoCb) autoCb.addEventListener('change', syncBsSel);
+    syncBsSel();
     await this._taiVaccineWalkIn();
     this._toggleLoaiWalkIn();
   },
@@ -419,53 +642,43 @@ const PageLeTanDashboard = {
     const bsItems = rankRes.data?.items || [];
     const host = document.getElementById(panelId);
     if (!host) return;
+    const cards = list.length
+      ? list
+          .map((l) => {
+            const selId = `lt-dp-bs-${l.id}`;
+            const mid = `lt-dp-mp-${l.id}`;
+            const tid = `lt-dp-tp-${l.id}`;
+            const stt = l.stt_trong_ngay != null ? String(l.stt_trong_ngay) : '—';
+            return `<article class="lt-queue-card">
+              <div class="lt-queue-stt">${this._esc(stt)}</div>
+              <div class="lt-queue-main">
+                <div class="lt-appt-patient">${this._esc(l.ten_benh_nhan || '')}</div>
+                <div class="lt-appt-sub">${this._esc(l.ma_benh_nhan || '')} · ${this._esc(l.ma_lich_hen || '')}</div>
+                <div class="mt-2">${this._ltBadgeLoai(l.loai_lich, l.loai_lich_display)} ${this._ltBadgeTrangThai(l.trang_thai, l.trang_thai_display)}</div>
+                <div class="lt-appt-sub mt-1"><i class="fas fa-clock"></i> ${this._esc(this._ltFormatGio(l.ngay_gio_hen))} · BS: ${this._esc(l.ten_bac_si || '—')}</div>
+              </div>
+              <div class="lt-queue-side">
+                <input id="${mid}" class="form-control form-control-sm" placeholder="Mã phòng" value="${this._esc(l.ma_phong || '')}"/>
+                <input id="${tid}" class="form-control form-control-sm" placeholder="Tên phòng" value="${this._esc(l.ten_phong || '')}"/>
+                <select id="${selId}" class="form-control form-control-sm">
+                  <option value="">Đổi bác sĩ</option>
+                  ${bsItems.map((x) => `<option value="${this._esc(x.id)}">${this._esc(x.ho_ten)}</option>`).join('')}
+                </select>
+                <button type="button" class="btn btn-sm btn-outline" onclick="PageLeTanDashboard._doPhanCongDp('${this._esc(l.id)}','${selId}')">Gán BS</button>
+                <button type="button" class="btn btn-sm btn-primary" onclick="PageLeTanDashboard._savePhong('${this._esc(l.id)}','${mid}','${tid}')">Lưu phòng</button>
+              </div>
+            </article>`;
+          })
+          .join('')
+      : this._ltEmpty('fa-users', 'Chưa có bệnh nhân đã check-in');
     host.innerHTML = `
-      <div class="card">
-        <div class="card-header"><div class="card-title">BN đã check-in — gán phòng / đổi bác sĩ</div></div>
-        <div class="card-body" style="overflow:auto">
-          <p class="text-muted small">Danh sách theo STT trong ngày.</p>
-          <table class="table table-sm">
-            <thead>
-              <tr>
-                <th>STT</th><th>Giờ</th><th>Mã lịch</th><th>Loại</th><th>BN</th><th>BS</th><th>Phòng</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              ${list
-                .map((l) => {
-                  const selId = `lt-dp-bs-${l.id}`;
-                  const mid = `lt-dp-mp-${l.id}`;
-                  const tid = `lt-dp-tp-${l.id}`;
-                  return `<tr>
-                  <td><strong>${l.stt_trong_ngay != null ? this._esc(String(l.stt_trong_ngay)) : '—'}</strong></td>
-                  <td>${this._esc(String(l.ngay_gio_hen || '').replace('T', ' ').slice(0, 16))}</td>
-                  <td>${this._esc(l.ma_lich_hen || '')}</td>
-                  <td>${this._esc(l.loai_lich_display || l.loai_lich || '—')}</td>
-                  <td>${this._esc(l.ten_benh_nhan || '')}<div class="text-muted small">${this._esc(l.ma_benh_nhan || '')}</div></td>
-                  <td>${this._esc(l.ten_bac_si || '—')}</td>
-                  <td>
-                    <input id="${mid}" class="form-control form-control-sm mb-1" placeholder="Mã phòng" value="${this._esc(l.ma_phong || '')}"/>
-                    <input id="${tid}" class="form-control form-control-sm" placeholder="Tên phòng" value="${this._esc(l.ten_phong || '')}"/>
-                  </td>
-                  <td style="white-space:nowrap;min-width:220px">
-                    <select id="${selId}" class="form-control form-control-sm mb-1">
-                      <option value="">Đổi BS</option>
-                      ${bsItems
-                        .map(
-                          (x) =>
-                            `<option value="${this._esc(x.id)}">${this._esc(x.ho_ten)}</option>`
-                        )
-                        .join('')}
-                    </select>
-                    <button type="button" class="btn btn-sm btn-outline mb-1" onclick="PageLeTanDashboard._doPhanCongDp('${this._esc(l.id)}','${selId}')">Gán BS</button>
-                    <button type="button" class="btn btn-sm btn-primary" onclick="PageLeTanDashboard._savePhong('${this._esc(l.id)}','${mid}','${tid}')">Lưu phòng</button>
-                  </td>
-                </tr>`;
-                })
-                .join('')}
-            </tbody>
-          </table>
-          ${!list.length ? '<p class="text-muted">Chưa có BN đã check-in.</p>' : ''}
+      <div class="lt-panel-shell">
+        <div class="lt-panel-head">
+          <h2 class="lt-panel-title"><i class="fas fa-list-ol"></i> Hàng chờ &amp; phòng khám</h2>
+          <span class="lt-badge lt-badge--ok">${list.length} BN</span>
+        </div>
+        <div class="lt-panel-body lt-panel-body--scroll">
+          ${cards}
         </div>
       </div>`;
   },
@@ -474,7 +687,11 @@ const PageLeTanDashboard = {
     const res = await Http.tao(`/lich-hen/lich-hen/${lichId}/check_in/`, {});
     if (res.ok) Toast.hien('Check-in', 'Đã tiếp nhận', 'success');
     else Toast.loi('Lỗi', JSON.stringify(res.data), 'error');
-    await this.chuyenTrang('tiep-nhan');
+    if (document.getElementById('lt-ci-panel')) {
+      await this._tiepNhanTab(window.__ltTiepNhanTab || 'co-lich');
+    } else {
+      await this.chuyenTrang('tiep-nhan');
+    }
   },
 
   async _doPhanCong(lichId, selectId) {
@@ -484,7 +701,11 @@ const PageLeTanDashboard = {
     const res = await Http.tao(`/lich-hen/lich-hen/${lichId}/phan_cong_bac_si/`, { bac_si: bacSi });
     if (res.ok) Toast.hien('Đã phân công', '', 'success');
     else Toast.loi('Lỗi', JSON.stringify(res.data), 'error');
-    await this.chuyenTrang('tiep-nhan');
+    if (document.getElementById('lt-ci-panel')) {
+      await this._tiepNhanTab(window.__ltTiepNhanTab || 'co-lich');
+    } else {
+      await this.chuyenTrang('tiep-nhan');
+    }
   },
 
   async _doPhanCongDp(lichId, selectId) {
@@ -513,18 +734,31 @@ const PageLeTanDashboard = {
   async _danhSachLich(host) {
     const today = this._ngayLocalISO();
     UI.render(host, `
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">Lịch trong ngày (xem nhanh)</div>
-        </div>
-        <div class="card-body">
-          <p class="text-muted small mb-2">Mặc định hôm nay — có thể đổi khoảng ngày nếu cần tra cứu.</p>
-          <div class="grid-2 mb-2">
-            <div><label>Từ ngày</label><input id="lt-ls-tu" type="date" class="form-control" value="${today}"/></div>
-            <div><label>Đến ngày</label><input id="lt-ls-den" type="date" class="form-control" value="${today}"/></div>
+      <div class="lt-page">
+        <header class="lt-hero">
+          <div>
+            <h1 class="lt-hero-title"><i class="fas fa-calendar-day"></i> Lịch trong ngày</h1>
+            <p class="lt-hero-desc">Tra cứu toàn bộ lịch hẹn theo khoảng ngày — theo dõi trạng thái và phân công bác sĩ.</p>
           </div>
-          <button type="button" class="btn btn-primary btn-sm mb-2" onclick="PageLeTanDashboard._taiDanhSachLich()">Tải danh sách</button>
-          <div id="lt-ls-body"></div>
+        </header>
+
+        <div class="lt-panel-shell">
+          <div class="lt-panel-body">
+            <div class="lt-filter-bar">
+              <div class="lt-toolbar-field">
+                <label>Từ ngày</label>
+                <input id="lt-ls-tu" type="date" class="form-control" value="${today}"/>
+              </div>
+              <div class="lt-toolbar-field">
+                <label>Đến ngày</label>
+                <input id="lt-ls-den" type="date" class="form-control" value="${today}"/>
+              </div>
+              <button type="button" class="btn btn-primary" onclick="PageLeTanDashboard._taiDanhSachLich()">
+                <i class="fas fa-search"></i> Tải danh sách
+              </button>
+            </div>
+            <div id="lt-ls-body" class="lt-panel-body--scroll"></div>
+          </div>
         </div>
       </div>`);
     await this._taiDanhSachLich();
@@ -540,27 +774,45 @@ const PageLeTanDashboard = {
     const box = document.getElementById('lt-ls-body');
     if (!box) return;
     if (!res.ok) {
-      box.innerHTML = '<p class="text-danger">Không tải được.</p>';
+      box.innerHTML = '<p class="text-danger">Không tải được dữ liệu.</p>';
       return;
     }
-    box.innerHTML =
-      `<table class="table table-sm">
-        <thead><tr><th>Thời gian</th><th>Mã lịch</th><th>BN</th><th>Mã BN</th><th>Bác sĩ</th><th>Trạng thái</th></tr></thead>
-        <tbody>` +
-      list
-        .map(
-          (l) => `<tr>
-      <td>${this._esc(String(l.ngay_gio_hen || '').replace('T', ' ').slice(0, 16))}</td>
-      <td>${this._esc(l.ma_lich_hen || '')}</td>
-      <td>${this._esc(l.ten_benh_nhan || '')}</td>
-      <td>${this._esc(l.ma_benh_nhan || '')}</td>
-      <td>${this._esc(l.ten_bac_si || '—')}</td>
-      <td>${this._esc(l.trang_thai_display || l.trang_thai)}</td>
-    </tr>`
-        )
-        .join('') +
-      `</tbody></table>` +
-      (!list.length ? '<p class="text-muted">Không có dữ liệu.</p>' : '');
+    if (!list.length) {
+      box.innerHTML = this._ltEmpty('fa-calendar', 'Không có lịch trong khoảng ngày đã chọn');
+      return;
+    }
+    box.innerHTML = `
+      <table class="lt-table-pro">
+        <thead>
+          <tr>
+            <th>Thời gian</th>
+            <th>Mã lịch</th>
+            <th>Loại</th>
+            <th>Bệnh nhân</th>
+            <th>Bác sĩ</th>
+            <th>STT</th>
+            <th>Trạng thái</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list
+            .map(
+              (l) => `<tr>
+            <td><strong>${this._esc(this._ltFormatGio(l.ngay_gio_hen))}</strong></td>
+            <td><code class="small">${this._esc(l.ma_lich_hen || '')}</code></td>
+            <td>${this._ltBadgeLoai(l.loai_lich, l.loai_lich_display)}</td>
+            <td>
+              <div>${this._esc(l.ten_benh_nhan || '')}</div>
+              <div class="text-muted small">${this._esc(l.ma_benh_nhan || '')}</div>
+            </td>
+            <td>${this._esc(l.ten_bac_si || '—')}</td>
+            <td>${l.stt_trong_ngay != null ? `<strong>${this._esc(String(l.stt_trong_ngay))}</strong>` : '—'}</td>
+            <td>${this._ltBadgeTrangThai(l.trang_thai, l.trang_thai_display)}</td>
+          </tr>`
+            )
+            .join('')}
+        </tbody>
+      </table>`;
   },
 };
 

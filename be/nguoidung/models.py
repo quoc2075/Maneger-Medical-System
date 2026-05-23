@@ -605,6 +605,42 @@ class ThongBao(models.Model):
         self.save()
 
 
+class DoctorSchedule(models.Model):
+    """Đăng ký ca làm bác sĩ — bảng doctor_schedule."""
+    CA_LAM_CHOICES = [
+        ('SANG', 'Ca sáng'),
+        ('CHIEU', 'Ca chiều'),
+        ('TOI', 'Ca tối'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    bac_si = models.ForeignKey(
+        BacSi,
+        on_delete=models.CASCADE,
+        related_name='doctor_schedules',
+        db_constraint=False,
+    )
+    ngay_lam = models.DateField(help_text='Ngày làm việc')
+    ca_lam = models.CharField(max_length=10, choices=CA_LAM_CHOICES)
+    ghi_chu = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'doctor_schedule'
+        verbose_name = 'Lịch ca làm bác sĩ'
+        verbose_name_plural = 'Lịch ca làm bác sĩ'
+        ordering = ['ngay_lam', 'ca_lam', 'bac_si__ma_bac_si']
+        unique_together = [('bac_si', 'ngay_lam', 'ca_lam')]
+        indexes = [
+            models.Index(fields=['ngay_lam', 'ca_lam']),
+            models.Index(fields=['bac_si', 'ngay_lam']),
+        ]
+
+    def __str__(self):
+        return f"{self.bac_si.ma_bac_si} — {self.ngay_lam} — {self.get_ca_lam_display()}"
+
+
 class LichLamViec(models.Model):
     """Lịch làm việc chi tiết của bác sĩ/nhân viên"""
     TRANG_THAI_CHOICES = [

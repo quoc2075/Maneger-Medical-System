@@ -14,6 +14,12 @@ from .models import *
 from .serializers import *
 from .reminder_services import dong_bo_nhac_cho_lich_hen
 from nguoidung.models import BacSi, BenhNhan
+from nguoidung.doctor_schedule import (
+    phan_ca_tu_thoi_diem,
+    bac_si_id_co_ca_trong_ngay,
+    cac_ca_bac_si_trong_ngay,
+    CA_LABEL,
+)
 import logging
 
 
@@ -41,14 +47,32 @@ def _stt_ke_tiep_trong_ngay(ngay_date):
     return (agg['m'] or 0) + 1
 
 
-def _bac_si_it_lich_nhat(ngay_date):
-    """Chọn bác sĩ đang làm việc có ít lịch trong ngày nhất (kể cả CHECKED_IN)."""
+def _loi_bac_si_khong_co_ca(bac_si, ngay_gio_hen):
+    """Trả về chuỗi lỗi nếu BS không đăng ký ca; None nếu hợp lệ."""
+    local = timezone.localtime(ngay_gio_hen) if timezone.is_aware(ngay_gio_hen) else ngay_gio_hen
+    ngay = local.date() if hasattr(local, 'date') else ngay_gio_hen
+    ca = phan_ca_tu_thoi_diem(ngay_gio_hen)
+    if bac_si.pk not in bac_si_id_co_ca_trong_ngay(ngay, ca):
+        return (
+            f'Bác sĩ {bac_si.nguoi_dung.ho_ten} chưa đăng ký ca '
+            f'{CA_LABEL.get(ca, ca)} ngày {ngay.strftime("%d/%m/%Y")}.'
+        )
+    return None
+
+
+def _bac_si_it_lich_nhat(ngay_date, ca_lam=None):
+    """Chọn BS đang làm việc, có đăng ký ca, ít lịch trong ngày nhất."""
+    if ca_lam is None:
+        ca_lam = phan_ca_tu_thoi_diem(timezone.now())
+    ids_ca = bac_si_id_co_ca_trong_ngay(ngay_date, ca_lam)
+    if not ids_ca:
+        return None
     trang_dem = [
         'CHO_XAC_NHAN', 'DA_DAT', 'DA_XAC_NHAN', 'CHECKED_IN', 'DANG_KHAM',
     ]
     start, end = _khoang_ngay_trong_tz(ngay_date)
     return (
-        BacSi.objects.filter(is_working=True)
+        BacSi.objects.filter(is_working=True, pk__in=ids_ca)
         .select_related('nguoi_dung')
         .annotate(
             so_hen=Count(
@@ -399,6 +423,9 @@ class LichHenViewSet(viewsets.ModelViewSet):
             return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
         bs_id = ser.validated_data['bac_si']
         bac_si = get_object_or_404(BacSi.objects.filter(is_working=True), pk=bs_id)
+        loi_ca = _loi_bac_si_khong_co_ca(bac_si, lich_hen.ngay_gio_hen)
+        if loi_ca:
+            return Response({'error': loi_ca}, status=status.HTTP_400_BAD_REQUEST)
 
         ngay_gio_hen = lich_hen.ngay_gio_hen
         ngay_gio_ket_thuc = lich_hen.ngay_gio_ket_thuc or (ngay_gio_hen + timedelta(minutes=30))
@@ -445,12 +472,26 @@ class LichHenViewSet(viewsets.ModelViewSet):
         now = timezone.now()
         ngay = timezone.localdate(now)
         tu_dong = ser.validated_data.get('tu_dong_chon_bac_si', True)
+        ca_lam = phan_ca_tu_thoi_diem(now)
         bac_si = None
         bs_id = ser.validated_data.get('bac_si')
         if bs_id:
             bac_si = get_object_or_404(BacSi.objects.filter(is_working=True), pk=bs_id)
+            loi_ca = _loi_bac_si_khong_co_ca(bac_si, now)
+            if loi_ca:
+                return Response({'error': loi_ca}, status=status.HTTP_400_BAD_REQUEST)
         elif tu_dong:
-            bac_si = _bac_si_it_lich_nhat(ngay)
+            bac_si = _bac_si_it_lich_nhat(ngay, ca_lam=ca_lam)
+            if bac_si is None:
+                return Response(
+                    {
+                        'error': (
+                            f'Không có bác sĩ đăng ký ca '
+                            f'{CA_LABEL.get(ca_lam, ca_lam)} ngày {ngay.strftime("%d/%m/%Y")}.'
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         stt = _stt_ke_tiep_trong_ngay(ngay)
         ma_lich = _tao_ma_lich_hen()
@@ -554,8 +595,45 @@ class LichHenViewSet(viewsets.ModelViewSet):
             ngay_parsed = _ngay_local_hien_tai()
 
         d0, d1 = _khoang_ngay_trong_tz(ngay_parsed)
+        ca_raw = (request.query_params.get('ca_lam') or '').strip().upper()
+        ca_lam = ca_raw if ca_raw in ('SANG', 'CHIEU', 'TOI') else phan_ca_tu_thoi_diem(timezone.now())
+        try:
+            ids_ca = bac_si_id_co_ca_trong_ngay(ngay_parsed, ca_lam)
+            ca_map = cac_ca_bac_si_trong_ngay(ngay_parsed)
+        except Exception as exc:
+            logger.exception('bac_si_xep_hang: lỗi đọc doctor_schedule')
+            return Response(
+                {
+                    'error': (
+                        'Không đọc được lịch ca bác sĩ. Chạy migration nguoidung 0003 '
+                        '(collation doctor_schedule) rồi khởi động lại server.'
+                    ),
+                    'detail': str(exc),
+                    'ngay': ngay_parsed.isoformat(),
+                    'ca_lam': ca_lam,
+                    'items': [],
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not ids_ca:
+            from nguoidung.models import DoctorSchedule
+            tong_ngay = DoctorSchedule.objects.filter(ngay_lam=ngay_parsed).count()
+            return Response({
+                'ngay': ngay_parsed.isoformat(),
+                'ca_lam': ca_lam,
+                'ca_lam_display': CA_LABEL.get(ca_lam, ca_lam),
+                'items': [],
+                'goi_y': (
+                    f'Không có bác sĩ đăng ký {CA_LABEL.get(ca_lam, ca_lam)} '
+                    f'ngày {ngay_parsed.strftime("%d/%m/%Y")}. '
+                    'Bác sĩ vào menu Đăng ký ca làm, chọn đúng ngày và ca.'
+                ),
+                'tong_dang_ky_trong_ngay': tong_ngay,
+            })
+
         qs = (
-            BacSi.objects.filter(is_working=True)
+            BacSi.objects.filter(is_working=True, pk__in=ids_ca)
             .select_related('nguoi_dung')
             .annotate(
                 so_benh_nhan_trong_ngay=Count(
@@ -578,10 +656,18 @@ class LichHenViewSet(viewsets.ModelViewSet):
                 'ho_ten': b.nguoi_dung.ho_ten,
                 'chuyen_khoa': b.chuyen_khoa,
                 'so_benh_nhan_trong_ngay': b.so_benh_nhan_trong_ngay,
+                'cac_ca_trong_ngay': ca_map.get(b.pk, []),
+                'ca_lam_loc': ca_lam,
+                'ca_lam_display': CA_LABEL.get(ca_lam, ca_lam),
             }
             for b in qs
         ]
-        return Response({'ngay': ngay_parsed.isoformat(), 'items': data})
+        return Response({
+            'ngay': ngay_parsed.isoformat(),
+            'ca_lam': ca_lam,
+            'ca_lam_display': CA_LABEL.get(ca_lam, ca_lam),
+            'items': data,
+        })
 
     @action(detail=True, methods=['get'], url_path='lich_su')
     def lich_su(self, request, pk=None):
