@@ -455,6 +455,9 @@ class LichHenViewSet(viewsets.ModelViewSet):
         stt = _stt_ke_tiep_trong_ngay(ngay)
         ma_lich = _tao_ma_lich_hen()
         nhan_vien_tao = getattr(user, 'nhan_vien', None) if hasattr(user, 'nhan_vien') else None
+        loai_lich = ser.validated_data.get('loai_lich') or 'KHAM_BENH'
+        vaccine = ser.validated_data.get('vaccine')
+        ghi_chu = (ser.validated_data.get('ghi_chu') or '').strip()
 
         with transaction.atomic():
             lich_hen = LichHen.objects.create(
@@ -462,7 +465,7 @@ class LichHenViewSet(viewsets.ModelViewSet):
                 benh_nhan=bn,
                 bac_si=bac_si,
                 nhan_vien_tao=nhan_vien_tao,
-                loai_lich=ser.validated_data.get('loai_lich') or 'KHAM_BENH',
+                loai_lich=loai_lich,
                 ngay_gio_hen=now,
                 ngay_gio_ket_thuc=now + timedelta(minutes=30),
                 trang_thai='CHECKED_IN',
@@ -470,8 +473,15 @@ class LichHenViewSet(viewsets.ModelViewSet):
                 stt_trong_ngay=stt,
                 ma_phong=(ser.validated_data.get('ma_phong') or '').strip(),
                 ten_phong=(ser.validated_data.get('ten_phong') or '').strip(),
-                ghi_chu=ser.validated_data.get('ghi_chu') or '',
+                ghi_chu=ghi_chu,
             )
+            if loai_lich == 'TIEM_CHUNG' and vaccine:
+                LichTiem.objects.create(
+                    lich_hen=lich_hen,
+                    vaccine=vaccine,
+                    so_mui=1,
+                    ghi_chu=ghi_chu or 'Tiếp nhận walk-in tại quầy — tiêm chủng',
+                )
             LichSuLichHen.objects.create(
                 lich_hen=lich_hen,
                 trang_thai_cu='CHO_XAC_NHAN',
@@ -755,45 +765,25 @@ class LichTiemViewSet(viewsets.ModelViewSet):
         lo_vaccine = serializer.validated_data['lo_vaccine']
         han_su_dung = serializer.validated_data['han_su_dung']
 
-        # Trừ tồn kho vaccine đúng lô trước khi xác nhận đã tiêm.
-        from thuoc.models import KhoVaccine
-        with transaction.atomic():
-            kho = (
-                KhoVaccine.objects.select_for_update()
-                .filter(
-                    vaccine=lich_tiem.vaccine,
+        from thuoc.stock import VaccineHetTonError, tru_ton_vaccine_mot_lieu
+
+        try:
+            with transaction.atomic():
+                lot = tru_ton_vaccine_mot_lieu(
+                    lich_tiem.vaccine,
                     lo_sx=lo_vaccine,
                     han_su_dung=han_su_dung,
-                    so_luong__gt=0,
                 )
-                .order_by('ngay_nhap')
-                .first()
-            )
-            if kho is None:
-                return Response(
-                    {
-                        'error': (
-                            'Không tìm thấy tồn kho cho vaccine/lô/hạn sử dụng này '
-                            'hoặc số lượng đã hết.'
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
+                lich_tiem.thuc_hien_tiem(
+                    nguoi_tiem=request.user.bac_si,
+                    lo_vaccine=lot['lo_sx'] or lo_vaccine,
+                    han_su_dung=lot['han_su_dung'],
                 )
-
-            kho.so_luong -= 1
-            kho.save(update_fields=['so_luong'])
-
-            # Thực hiện tiêm
-            lich_tiem.thuc_hien_tiem(
-                nguoi_tiem=request.user.bac_si,
-                lo_vaccine=lo_vaccine,
-                han_su_dung=han_su_dung
-            )
-
-            # Ghi nhận phản ứng
-            lich_tiem.phan_ung_sau_tiem = serializer.validated_data.get('phan_ung_sau_tiem', '')
-            lich_tiem.xu_tri_phan_ung = serializer.validated_data.get('xu_tri_phan_ung', '')
-            lich_tiem.save(update_fields=['phan_ung_sau_tiem', 'xu_tri_phan_ung', 'updated_at'])
+                lich_tiem.phan_ung_sau_tiem = serializer.validated_data.get('phan_ung_sau_tiem', '')
+                lich_tiem.xu_tri_phan_ung = serializer.validated_data.get('xu_tri_phan_ung', '')
+                lich_tiem.save(update_fields=['phan_ung_sau_tiem', 'xu_tri_phan_ung', 'updated_at'])
+        except VaccineHetTonError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         
         return Response(LichTiemSerializer(lich_tiem).data)
 

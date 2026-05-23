@@ -284,10 +284,29 @@ class HoSoBenhAnViewSet(viewsets.ModelViewSet):
             data['nguoi_tiem'] = str(request.user.bac_si.pk)
         data.setdefault('trang_thai', 'HEN_TIEM')
         ser = LichSuTiemChungCreateSerializer(data=data)
-        if ser.is_valid():
+        if not ser.is_valid():
+            return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        trang_thai = ser.validated_data.get('trang_thai') or 'HEN_TIEM'
+        if trang_thai == 'DA_TIEM':
+            from thuoc.stock import VaccineHetTonError, tru_ton_vaccine_mot_lieu
+
+            lo_raw = (request.data.get('lo_vaccine') or data.get('lo_vaccine') or '').strip()
+            han_raw = request.data.get('han_su_dung') or data.get('han_su_dung')
+            han_parsed = parse_date(han_raw) if han_raw else None
+            try:
+                with transaction.atomic():
+                    lot = tru_ton_vaccine_mot_lieu(
+                        ser.validated_data['vaccine'],
+                        lo_sx=lo_raw or None,
+                        han_su_dung=han_parsed,
+                    )
+                    obj = ser.save(lo_vaccine=lot['lo_sx'])
+            except VaccineHetTonError as exc:
+                return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        else:
             obj = ser.save()
-            return Response(LichSuTiemChungSerializer(obj).data, status=status.HTTP_201_CREATED)
-        return Response(ser.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response(LichSuTiemChungSerializer(obj).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['post'])
     def chi_dinh_xet_nghiem(self, request, pk=None):

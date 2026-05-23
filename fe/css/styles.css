@@ -1034,3 +1034,219 @@ textarea.form-control { resize: vertical; min-height: 90px; }
 .bs-hs-toa-block:last-child {
   margin-bottom: 0;
 }
+
+/* —— Bác sĩ: kê đơn thuốc —— */
+.bs-dt-page { max-width: 1100px; }
+.bs-dt-hero {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 20px 22px;
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #e8f4fc 0%, #f0fdf9 55%, #fff 100%);
+  border: 1px solid rgba(10, 35, 66, 0.08);
+  box-shadow: 0 2px 12px rgba(10, 35, 66, 0.06);
+}
+.bs-dt-hero-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--c-navy, #0a2342);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+.bs-dt-hero-title {
+  margin: 0 0 4px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--c-navy, #0a2342);
+}
+.bs-dt-hero-sub {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--c-muted, #64748b);
+}
+.bs-dt-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 280px) 1fr;
+  gap: 18px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .bs-dt-grid { grid-template-columns: 1fr; }
+}
+.bs-dt-aside .card-body { padding: 18px; }
+.bs-dt-patient-name {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--c-navy, #0a2342);
+  margin-bottom: 6px;
+  line-height: 1.35;
+}
+.bs-dt-meta {
+  font-size: 0.8rem;
+  color: var(--c-muted, #64748b);
+  margin-bottom: 14px;
+}
+.bs-dt-meta code { font-size: 0.78rem; }
+.bs-dt-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--c-muted, #64748b);
+  margin-bottom: 6px;
+}
+.bs-dt-input { border-radius: 10px; }
+.bs-dt-banner {
+  font-size: 0.8rem;
+  padding: 10px 12px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+.bs-dt-banner--ok {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+.bs-dt-banner--warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+.bs-dt-panel { margin-bottom: 16px; border-radius: 12px; overflow: hidden; }
+.bs-dt-panel-head {
+  font-weight: 600;
+  font-size: 0.9rem;
+  gap: 8px;
+}
+.bs-dt-panel-head i { opacity: 0.75; }
+.bs-dt-search-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+.bs-dt-search-row .form-control { flex: 1; min-width: 0; border-radius: 10px; }
+.bs-dt-search-row .btn { border-radius: 10px; white-space: nowrap; }
+.bs-dt-search-results { margin-top: 12px; }
+.bs-dt-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.bs-dt-pick-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.bs-dt-pick-item:hover {
+  border-color: var(--c-navy, #0a2342);
+  background: var(--c-sky, #f0f9ff);
+}
+.bs-dt-pick-name { font-weight: 600; font-size: 0.875rem; color: #0f172a; }
+.bs-dt-pick-code { font-size: 0.75rem; color: #64748b; }
+.bs-dt-empty-hint {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin: 0;
+  padding: 8px 0;
+}
+.bs-dt-add-form {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+}
+.bs-dt-add-form-title { font-size: 0.9rem; margin-bottom: 12px; color: #0f172a; }
+.bs-dt-add-fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+@media (max-width: 640px) {
+  .bs-dt-add-fields { grid-template-columns: 1fr; }
+}
+.bs-dt-add-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.bs-dt-ngoai-grid {
+  display: grid;
+  grid-template-columns: 2fr 0.7fr 1fr 1.3fr;
+  gap: 10px;
+}
+@media (max-width: 768px) {
+  .bs-dt-ngoai-grid { grid-template-columns: 1fr 1fr; }
+}
+.bs-dt-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--c-muted, #64748b);
+  background: #f1f5f9;
+  padding: 4px 10px;
+  border-radius: 20px;
+}
+.bs-dt-table-wrap { overflow-x: auto; }
+.bs-dt-table thead th {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.bs-dt-table tbody td {
+  vertical-align: middle;
+  border-color: #f1f5f9;
+}
+.bs-dt-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.bs-dt-badge--kho { background: #d1fae5; color: #065f46; }
+.bs-dt-badge--ngoai { background: #fef3c7; color: #92400e; }
+.bs-dt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+.bs-dt-btn-save {
+  min-width: 160px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+/* Kế toán: quản lý kho nhúng */
+.kt-kho-subnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.kt-kho-subnav .btn {
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.8rem;
+}

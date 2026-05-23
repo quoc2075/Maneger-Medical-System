@@ -2,6 +2,12 @@
  * Nhân viên chức vụ Quản lý kho — tồn kho, nhập/xuất thuốc & vaccine, cảnh báo.
  */
 const PageKhoDashboard = {
+  _mainHostId: 'kho-main',
+
+  _hostEl() {
+    return document.getElementById(this._mainHostId || 'kho-main');
+  },
+
   _esc(s) {
     if (s == null) return '';
     return String(s).replace(/[&<>"']/g, (c) =>
@@ -46,6 +52,7 @@ const PageKhoDashboard = {
   },
 
   async render() {
+    this._mainHostId = 'kho-main';
     const { hoTen } = Auth.layThongTin();
     const navHtml = `
       <button type="button" class="nav-item" data-kho-nav="canh-bao" onclick="PageKhoDashboard.loadMain('canh-bao')"><i class="fas fa-exclamation-triangle"></i><span>Cảnh báo tồn</span></button>
@@ -66,9 +73,9 @@ const PageKhoDashboard = {
     await this.loadMain('canh-bao');
   },
 
-  async loadMain(tab) {
-    this._setNavActive(tab);
-    const host = document.getElementById('kho-main');
+  async loadMain(tab, opts = {}) {
+    if (!opts.skipNav) this._setNavActive(tab);
+    const host = this._hostEl();
     if (!host) return;
     host.innerHTML = '<p class="text-muted">Đang tải…</p>';
     if (tab === 'canh-bao') return this._canhBao(host);
@@ -268,7 +275,7 @@ const PageKhoDashboard = {
     if (res.ok) {
       Toast.hien('Đã xuất kho', '', 'success');
       this._dongOverlayXuatKho();
-      const host = document.getElementById('kho-main');
+      const host = this._hostEl();
       if (host) await this._bangKhoThuoc(host);
     } else Toast.hien('Lỗi', (res.data && res.data.error) || 'Xuất thất bại', 'error');
   },
@@ -282,7 +289,7 @@ const PageKhoDashboard = {
     if (res.ok) {
       Toast.hien('Đã xuất kho', '', 'success');
       this._dongOverlayXuatKho();
-      const host = document.getElementById('kho-main');
+      const host = this._hostEl();
       if (host) await this._bangKhoVaccine(host);
     } else Toast.hien('Lỗi', (res.data && res.data.error) || 'Xuất thất bại', 'error');
   },

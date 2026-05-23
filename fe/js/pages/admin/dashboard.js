@@ -74,7 +74,7 @@ const AdminDashboard = {
                         </a>
                         <a href="#" class="nav-item" data-page="notifications">
                             <i class="fas fa-bell"></i>
-                            <span>Thông báo</span>
+                            <span>Quản lý thông báo</span>
                         </a>
                         <a href="#" class="nav-item" data-page="settings">
                             <i class="fas fa-cog"></i>
@@ -1957,7 +1957,7 @@ const AdminDashboard = {
     // Load notifications
     async loadNotifications() {
         const content = document.getElementById('admin-content');
-        content.innerHTML = '<div class="loading-container"><div class="spinner"></div><p>Đang tải thông báo...</p></div>';
+        content.innerHTML = '<div class="loading-container"><div class="spinner"></div><p>Đang tải quản lý thông báo...</p></div>';
         
         try {
             const notifications = await this.apiGet('/thong-bao/');
@@ -1965,7 +1965,7 @@ const AdminDashboard = {
             content.innerHTML = `
                 <div class="card">
                     <div class="card-header">
-                        <div class="card-title">Tất cả thông báo</div>
+                        <div class="card-title">Quản lý thông báo</div>
                         <button class="btn btn-outline btn-sm" onclick="AdminDashboard.markAllNotificationsRead()">
                             Đánh dấu đã đọc tất cả
                         </button>

@@ -1,11 +1,17 @@
 /**
- * Dashboard bác sĩ — hồ sơ BN (tab), chẩn đoán theo lần khám, đơn thuốc, chỉ định, tái khám.
+ * Dashboard bác sĩ — hồ sơ BN (tab), chẩn đoán theo lần khám, đơn thuốc, tiêm chủng.
  */
 const PageBacSiDashboard = {
   _hoSoId: null,
   _benhNhanId: null,
   _benhNhanNguoiDungId: null,
   _lichHenId: null,
+  /** Lịch đang mở: KHAM_BENH | TIEM_CHUNG | … */
+  _loaiLichHen: null,
+  /** Vaccine từ lịch TIEM_CHUNG (UUID) */
+  _vaccineLichHenId: null,
+  /** Snapshot lịch tiêm (ghi chú đặt lịch, trạng thái lịch) */
+  _lichTiemSnapshot: null,
   _chanDoanDaLuu: false,
   /** Giữ thông tin BN đang khám khi chuyển tab (API không lồng nguoi_dung đầy đủ — dùng ho_ten từ serializer) */
   _patientSnapshot: null,
@@ -54,35 +60,6 @@ const PageBacSiDashboard = {
   _formatDateYMD(d) {
     const pad = (n) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  },
-
-  _defaultTaiKhamDatetimeLocal() {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    d.setHours(9, 0, 0, 0);
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  },
-
-  _localDatetimeToNgayHenApi(v) {
-    const s = (v || '').trim();
-    if (!s) return '';
-    return s.length === 16 ? `${s}:00` : s;
-  },
-
-  _dongModalHenTaiKham() {
-    const el = document.getElementById('bs-hen-tk-overlay');
-    if (el) el.remove();
-  },
-
-  _trangThaiTaiKham(tt) {
-    const m = {
-      CHUA_KHAM: 'Chưa khám',
-      DA_KHAM: 'Đã khám',
-      QUA_HAN: 'Quá hạn',
-      HUY: 'Đã hủy',
-    };
-    return m[tt] || tt || '—';
   },
 
   /** Cập nhật snapshot từ object hồ sơ (retrieve hoặc mo-ho-so) */
@@ -168,6 +145,9 @@ const PageBacSiDashboard = {
     this._benhNhanId = null;
     this._benhNhanNguoiDungId = null;
     this._lichHenId = null;
+    this._loaiLichHen = null;
+    this._vaccineLichHenId = null;
+    this._lichTiemSnapshot = null;
     this._patientSnapshot = null;
     this._chanDoanDaLuu = false;
     this._refreshPatientStrip();
@@ -235,8 +215,7 @@ const PageBacSiDashboard = {
       <button type="button" class="nav-item" data-bs-nav="hs" onclick="PageBacSiDashboard.chuyenTrang('ho-so')"><i class="fas fa-folder-open"></i><span>Hồ sơ bệnh nhân</span></button>
       <button type="button" class="nav-item" data-bs-nav="cd" onclick="PageBacSiDashboard.chuyenTrang('chan-doan')"><i class="fas fa-stethoscope"></i><span>Chẩn đoán</span></button>
       <button type="button" class="nav-item" data-bs-nav="dt" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')"><i class="fas fa-prescription"></i><span>Kê đơn</span></button>
-      <button type="button" class="nav-item" data-bs-nav="cd2" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')"><i class="fas fa-syringe"></i><span>Tiêm chủng</span></button>
-      <button type="button" class="nav-item" data-bs-nav="tk" onclick="PageBacSiDashboard.chuyenTrang('tai-kham')"><i class="fas fa-calendar-plus"></i><span>Lịch tái khám</span></button>`;
+      <button type="button" class="nav-item" data-bs-nav="cd2" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')"><i class="fas fa-syringe"></i><span>Tiêm chủng</span></button>`;
     const strip = `
       <div id="bs-patient-strip-wrap" class="mb-3">
         <div id="bs-patient-strip" class="card border-primary shadow-sm" style="display:none"></div>
@@ -262,7 +241,6 @@ const PageBacSiDashboard = {
       'chan-doan': 'cd',
       'don-thuoc': 'dt',
       'chi-dinh': 'cd2',
-      'tai-kham': 'tk',
     };
     const cur = map[trang];
     document.querySelectorAll('[data-bs-nav]').forEach((b) => {
@@ -279,7 +257,6 @@ const PageBacSiDashboard = {
     else if (trang === 'chan-doan') await this._formChanDoan(host);
     else if (trang === 'don-thuoc') await this._formDonThuoc(host);
     else if (trang === 'chi-dinh') await this._chiDinh(host);
-    else if (trang === 'tai-kham') await this._formTaiKham(host);
     else await this._tongQuan(host);
     this._refreshPatientStrip();
   },
@@ -323,6 +300,227 @@ const PageBacSiDashboard = {
       : '<p class="text-muted">Chưa có bệnh nhân đã check-in hôm nay.</p>';
   },
 
+  _loaiLichLabel(loai) {
+    const m = {
+      KHAM_BENH: 'Khám bệnh',
+      TIEM_CHUNG: 'Tiêm chủng',
+      TAI_KHAM: 'Tái khám',
+      TU_VAN: 'Tư vấn',
+    };
+    return m[loai] || loai || '—';
+  },
+
+  _trangThaiTiemChungLs(tt) {
+    const m = {
+      DA_TIEM: 'Đã tiêm',
+      HEN_TIEM: 'Hẹn tiêm',
+      BO_QUA: 'Bỏ qua',
+      CHONG_CHI_DINH: 'Chống chỉ định / không đạt',
+      HOAN: 'Hoãn tiêm',
+    };
+    return m[tt] || tt || '—';
+  },
+
+  _trangThaiLichTiemLt(tt) {
+    const m = {
+      CHUA_TIEM: 'Chưa tiêm',
+      DA_TIEM: 'Đã tiêm',
+      TAM_HOAN: 'Tạm hoãn',
+      CHONG_CHI_DINH: 'Chống chỉ định / không đạt',
+    };
+    return m[tt] || tt || '—';
+  },
+
+  /** Lịch hẹn + lịch sử tiêm gắn hồ sơ (tra cứu / phân loại tiêm chủng). */
+  async _layThongTinHoSoTiem(h) {
+    const hoSoId = h && h.id;
+    const bnId = this._idStr(h && h.benh_nhan);
+    let loaiLich = null;
+    let lichHenId = null;
+    let lichTiem = null;
+    let maLichHen = '';
+
+    if (hoSoId) {
+      const lkRes = await Http.layDanhSach(
+        `/lich-hen/lich-kham/?ho_so_benh_an=${encodeURIComponent(hoSoId)}`
+      );
+      if (lkRes.ok && lkRes.data != null) {
+        const raw = lkRes.data;
+        const rows = Array.isArray(raw) ? raw : raw.results || [];
+        const row = rows[0];
+        if (row && row.lich_hen != null && row.lich_hen !== '') {
+          lichHenId =
+            typeof row.lich_hen === 'object' && row.lich_hen !== null
+              ? row.lich_hen.id
+              : row.lich_hen;
+        }
+      }
+      if (lichHenId) {
+        const lhRes = await Http.layDanhSach(`/lich-hen/lich-hen/${lichHenId}/`);
+        if (lhRes.ok && lhRes.data) {
+          loaiLich = lhRes.data.loai_lich || null;
+          maLichHen = lhRes.data.ma_lich_hen || '';
+        }
+        if (loaiLich === 'TIEM_CHUNG') {
+          const ltRes = await Http.layDanhSach(`/lich-hen/lich-tiem/${lichHenId}/`);
+          if (ltRes.ok && ltRes.data) lichTiem = ltRes.data;
+        }
+      }
+    }
+
+    let danhSachTiem = [];
+    if (bnId) {
+      const tcRes = await Http.layDanhSach(
+        `/benh-an/lich-su-tiem-chung/?benh_nhan=${encodeURIComponent(bnId)}&ordering=-ngay_tiem&page_size=40`
+      );
+      const rows = (tcRes.data && tcRes.data.results) || tcRes.data || [];
+      const all = Array.isArray(rows) ? rows : [];
+      const ngayHs = (h.ngay_kham || '').toString().slice(0, 10);
+      danhSachTiem = ngayHs
+        ? all.filter((t) => (t.ngay_tiem || '').toString().slice(0, 10) === ngayHs)
+        : [];
+      if (!danhSachTiem.length && all.length) danhSachTiem = [all[0]];
+    }
+
+    const lyDo = ((h && h.ly_do_kham) || '').toLowerCase();
+    const isTiemChung =
+      loaiLich === 'TIEM_CHUNG' ||
+      danhSachTiem.length > 0 ||
+      lyDo.includes('tiêm chủng') ||
+      lyDo.includes('tiem chung');
+
+    return { isTiemChung, loaiLich, lichHenId, lichTiem, danhSachTiem, maLichHen };
+  },
+
+  /** Trạng thái + ghi chú ưu tiên bản ghi trên hồ sơ (sau khi bác sĩ lưu), không chỉ lịch "Chưa tiêm". */
+  _trangThaiTiemTomTat(meta) {
+    const list = Array.isArray(meta?.danhSachTiem) ? meta.danhSachTiem : [];
+    if (list.length) {
+      const t = list[0];
+      return {
+        trangThai: this._trangThaiTiemChungLs(t.trang_thai),
+        ghiChuHs: (t.ghi_chu || '').trim(),
+        coHoSo: true,
+      };
+    }
+    const lt = meta?.lichTiem;
+    if (lt) {
+      return {
+        trangThai: this._trangThaiLichTiemLt(lt.trang_thai_tiem),
+        ghiChuHs: '',
+        ghiChuDatLich: (lt.ghi_chu || '').trim(),
+        coHoSo: false,
+      };
+    }
+    return { trangThai: '—', ghiChuHs: '', ghiChuDatLich: '', coHoSo: false };
+  },
+
+  _badgeTrangThaiTiem(text) {
+    const t = (text || '').toLowerCase();
+    let cls = 'bg-light text-dark border';
+    if (t.includes('đã tiêm')) cls = 'bg-success text-white';
+    else if (t.includes('chống') || t.includes('hủy') || t.includes('bỏ')) cls = 'bg-danger text-white';
+    else if (t.includes('chưa tiêm') || t.includes('hẹn')) cls = 'bg-warning text-dark';
+    return `<span class="badge ${cls}">${this._esc(text)}</span>`;
+  },
+
+  _renderTiemChungDocHtml(meta, h) {
+    const m = meta || {};
+    const tom = this._trangThaiTiemTomTat(m);
+    const parts = [];
+
+    parts.push(
+      `<div class="bs-hs-tiem-status mb-3 p-2 rounded border" style="background:#f0fdfa">
+        <div class="small text-muted mb-1">Trạng thái tiêm${tom.coHoSo ? ' (trên hồ sơ)' : ' (lịch hẹn)'}</div>
+        <div class="mb-2">${this._badgeTrangThaiTiem(tom.trangThai)}</div>
+        ${!tom.coHoSo && tom.trangThai.includes('Chưa tiêm') ? '<p class="small text-muted mb-0">BN đã check-in — chờ bác sĩ ghi tiêm trên màn <strong>Tiêm chủng</strong>.</p>' : ''}
+      </div>`
+    );
+
+    const ghiChuBlocks = [];
+    if (tom.ghiChuDatLich) {
+      ghiChuBlocks.push(
+        `<div class="mb-2"><span class="small text-muted d-block">Ghi chú khi đặt lịch</span><p class="small mb-0">${this._esc(this._shortText(tom.ghiChuDatLich, 500))}</p></div>`
+      );
+    }
+    if (tom.ghiChuHs) {
+      ghiChuBlocks.push(
+        `<div class="mb-2"><span class="small text-muted d-block">Ghi chú điều trị / sau tiêm</span><p class="small mb-0 fw-semibold">${this._esc(this._shortText(tom.ghiChuHs, 500))}</p></div>`
+      );
+    }
+    if (!ghiChuBlocks.length) {
+      ghiChuBlocks.push('<p class="bs-hs-dd-muted small mb-0">Chưa có ghi chú tiêm chủng.</p>');
+    }
+    parts.push(
+      `<div class="bs-hs-readonly-section mb-3"><h5 class="small fw-bold text-secondary mb-2">Ghi chú</h5>${ghiChuBlocks.join('')}</div>`
+    );
+
+    if (m.maLichHen || m.loaiLich) {
+      parts.push(
+        `<p class="small mb-2"><strong>Lịch hẹn:</strong> ${this._esc(m.maLichHen || '—')}${
+          m.loaiLich ? ` · ${this._esc(this._loaiLichLabel(m.loaiLich))}` : ''
+        }</p>`
+      );
+    }
+    if (h && h.ly_do_kham) {
+      parts.push(`<p class="small mb-2"><strong>Lý do:</strong> ${this._esc(this._shortText(h.ly_do_kham, 500))}</p>`);
+    }
+    const lt = m.lichTiem;
+    if (lt) {
+      const tenVc =
+        lt.ten_vaccine ||
+        (lt.vaccine && typeof lt.vaccine === 'object' ? lt.vaccine.ten_vaccine : '') ||
+        '';
+      parts.push(`<dl class="bs-hs-dl">
+        <dt>Vaccine (lịch)</dt><dd>${this._esc(tenVc || '—')}</dd>
+        <dt>Mũi</dt><dd>${lt.so_mui != null ? this._esc(String(lt.so_mui)) : '—'}</dd>
+      </dl>`);
+    }
+    const list = Array.isArray(m.danhSachTiem) ? m.danhSachTiem : [];
+    if (list.length) {
+      parts.push(`<div class="table-responsive mt-2"><table class="table table-sm table-bordered mb-0 small">
+        <thead><tr><th>Mã</th><th>Vaccine</th><th>Ngày tiêm</th><th>Trạng thái</th><th>Ghi chú</th></tr></thead><tbody>
+        ${list
+          .map(
+            (t) => `<tr>
+            <td>${this._esc(t.ma_lich || '')}</td>
+            <td>${this._esc(t.ten_vaccine || '')}</td>
+            <td>${this._esc(t.ngay_tiem || '')}</td>
+            <td>${this._esc(t.trang_thai_display || this._trangThaiTiemChungLs(t.trang_thai))}</td>
+            <td>${this._esc(this._shortText(t.ghi_chu, 120) || '—')}</td>
+          </tr>`
+          )
+          .join('')}
+        </tbody></table></div>`);
+    } else if (!lt) {
+      parts.push(
+        '<p class="bs-hs-dd-muted small mb-0">Chưa có bản ghi tiêm chủng trên hồ sơ lần này.</p>'
+      );
+    }
+    return parts.join('') || '<p class="bs-hs-dd-muted small mb-0">Không có thông tin tiêm chủng.</p>';
+  },
+
+  async _napVaccineTuLichTiem(lichId) {
+    this._vaccineLichHenId = null;
+    this._lichTiemSnapshot = null;
+    const res = await Http.layDanhSach(`/lich-hen/lich-tiem/${lichId}/`);
+    if (res.ok && res.data) {
+      this._lichTiemSnapshot = res.data;
+      this._vaccineLichHenId = this._idStr(res.data.vaccine) || null;
+    }
+  },
+
+  _dienGhiChuTiemForm() {
+    const el = document.getElementById('ti-ghi-chu');
+    if (!el) return;
+    const datLich = (this._lichTiemSnapshot?.ghi_chu || '').trim();
+    if (datLich) {
+      el.placeholder = `Ghi chú lúc tiêm (đặt lịch: ${datLich.slice(0, 80)}${datLich.length > 80 ? '…' : ''})`;
+    } else {
+      el.placeholder = 'Ghi chú: phản ứng sau tiêm, lưu ý theo dõi, mũi tiếp theo…';
+    }
+  },
+
   async _moHoSoTuLich(lichId) {
     const res = await Http.tao(`/lich-hen/lich-hen/${lichId}/mo_ho_so_benh_an/`, {});
     if (!res.ok || !res.data || !res.data.ho_so) {
@@ -330,13 +528,23 @@ const PageBacSiDashboard = {
       return;
     }
     const ho = res.data.ho_so;
+    const lich = res.data.lich_hen || {};
     this._lichHenId = lichId;
+    this._loaiLichHen = lich.loai_lich || null;
     this._hoSoId = ho.id;
     this._benhNhanId = this._idStr(ho.benh_nhan) || this._benhNhanId;
     this._chanDoanDaLuu = false;
     this._hoSoXemChiTietTraCuu = false;
     this._setPatientSnapshotFromHoSo(ho, lichId);
     Toast.hien('Đã mở hồ sơ', ho.ma_hs || '', 'success');
+
+    if (this._loaiLichHen === 'TIEM_CHUNG') {
+      await this._napVaccineTuLichTiem(lichId);
+      await this.chuyenTrang('chi-dinh');
+      return;
+    }
+
+    this._vaccineLichHenId = null;
     await this.chuyenTrang('ho-so');
     await this._loadChiTietHoSo(this._hoSoId, { traCuu: false });
   },
@@ -367,29 +575,38 @@ const PageBacSiDashboard = {
       el.innerHTML = '<p class="text-danger small mb-0">Không tải được danh sách lịch.</p>';
       return;
     }
-    const list = Array.isArray(rows) ? rows : [];
+    const list = (Array.isArray(rows) ? rows : []).filter(
+      (l) => l.trang_thai !== 'HOAN_THANH'
+    );
     if (!list.length) {
       el.innerHTML =
-        '<p class="text-muted small mb-0">Không có lịch hôm nay được xếp cho bạn.</p>';
+        '<p class="text-muted small mb-0">Không còn lịch cần khám hôm nay (lịch đã <strong>Hoàn thành</strong> không hiển thị).</p>';
       return;
     }
     el.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover mb-0 align-middle">
-      <thead><tr><th>Giờ</th><th>Bệnh nhân</th><th>Mã BN</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+      <thead><tr><th>Giờ</th><th>Bệnh nhân</th><th>Mã BN</th><th>Loại</th><th>Trạng thái</th><th></th></tr></thead><tbody>
       ${list
-        .map(
-          (l) => `<tr>
+        .map((l) => {
+          const isTiem = l.loai_lich === 'TIEM_CHUNG';
+          const btnLabel = isTiem ? 'Tiêm chủng' : 'Mở hồ sơ khám';
+          const btnClass = isTiem ? 'btn-info text-white' : 'btn-primary';
+          const loaiBadge = isTiem
+            ? '<span class="badge bg-info text-white">Tiêm chủng</span>'
+            : `<span class="badge bg-light text-dark border">${this._esc(l.loai_lich_display || this._loaiLichLabel(l.loai_lich))}</span>`;
+          return `<tr>
         <td>${this._esc((l.ngay_gio_hen || '').toString().slice(11, 16))}</td>
         <td>${this._esc(l.ten_benh_nhan || '')}</td>
         <td>${this._esc(l.ma_benh_nhan || '')}</td>
+        <td>${loaiBadge}</td>
         <td><span class="badge bg-light text-dark border">${this._esc(this._trangThaiLich(l.trang_thai))}</span></td>
         <td class="text-end">
-          <button type="button" class="btn btn-sm btn-primary" onclick="PageBacSiDashboard._moHoSoTuLich('${l.id}')">Mở hồ sơ khám</button>
+          <button type="button" class="btn btn-sm ${btnClass}" onclick="PageBacSiDashboard._moHoSoTuLich('${l.id}')">${btnLabel}</button>
         </td>
-      </tr>`
-        )
+      </tr>`;
+        })
         .join('')}
       </tbody></table></div>
-      <p class="text-muted small mt-2 mb-0">Danh sách lịch <strong>hôm nay</strong> do lễ tân / hệ thống gán cho bác sĩ. Bấm &quot;Mở hồ sơ khám&quot; để tạo hoặc tiếp tục hồ sơ lần khám.</p>`;
+      <p class="text-muted small mt-2 mb-0">Lịch <strong>tiêm chủng</strong> mở thẳng màn ghi tiêm; lịch khám mở hồ sơ lần khám.</p>`;
   },
 
   async _hoSoList(host) {
@@ -544,7 +761,8 @@ const PageBacSiDashboard = {
 
     if (traCuu) {
       this._hoSoXemChiTietTraCuu = true;
-      d.innerHTML = this._renderHoSoTomTatTraCuu(h);
+      const metaTiem = await this._layThongTinHoSoTiem(h);
+      d.innerHTML = this._renderHoSoTomTatTraCuu(h, metaTiem);
       this._refreshPatientStrip();
       try {
         d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -586,6 +804,20 @@ const PageBacSiDashboard = {
       }
     }
     this._lichHenId = lhId;
+    if (lhId) {
+      const lhRes = await Http.layDanhSach(`/lich-hen/lich-hen/${lhId}/`);
+      if (lhRes.ok && lhRes.data) {
+        this._loaiLichHen = lhRes.data.loai_lich || null;
+        if (this._loaiLichHen === 'TIEM_CHUNG') {
+          await this._napVaccineTuLichTiem(lhId);
+        } else {
+          this._vaccineLichHenId = null;
+        }
+      }
+    } else {
+      this._loaiLichHen = null;
+      this._vaccineLichHenId = null;
+    }
   },
 
   _fmtNgayKhamDisplay(s) {
@@ -678,7 +910,8 @@ const PageBacSiDashboard = {
       .join('');
   },
 
-  _renderHoSoTomTatTraCuu(h) {
+  _renderHoSoTomTatTraCuu(h, metaTiem) {
+    const meta = metaTiem || { isTiemChung: false };
     const bn = typeof h.benh_nhan === 'object' ? h.benh_nhan : null;
     const tenBn = (bn && (bn.ho_ten || bn.nguoi_dung?.ho_ten)) || h.ten_benh_nhan || '';
     const maBn = (bn && bn.ma_benh_nhan) || h.ma_benh_nhan || '';
@@ -693,6 +926,23 @@ const PageBacSiDashboard = {
         `<span class="bs-hs-chip">${this._esc([bn.ngay_sinh, bn.gioi_tinh].filter(Boolean).join(' · '))}</span>`
       );
     }
+    const badgeLoai = meta.isTiemChung
+      ? '<span class="bs-hs-badge-readonly" style="background:#cffafe;color:#0e7490">Tiêm chủng</span>'
+      : '<span class="bs-hs-badge-readonly">Chỉ xem — tra cứu</span>';
+
+    const bodyTiem = meta.isTiemChung
+      ? `<section class="bs-hs-readonly-section">
+            <h4 class="bs-hs-readonly-title"><i class="fas fa-syringe"></i> Tiêm chủng</h4>
+            ${this._renderTiemChungDocHtml(meta, h)}
+          </section>`
+      : `<section class="bs-hs-readonly-section">
+            <h4 class="bs-hs-readonly-title">Chẩn đoán</h4>
+            ${this._renderChanDoanDocHtml(h.chan_doan)}
+          </section>
+          <section class="bs-hs-readonly-section">
+            <h4 class="bs-hs-readonly-title">Toa thuốc đã kê</h4>
+            ${this._renderToaThuocDocHtml(h)}
+          </section>`;
 
     return `
       <div class="bs-hs-detail bs-hs-detail--readonly">
@@ -702,7 +952,7 @@ const PageBacSiDashboard = {
             <div class="bs-hs-detail-meta">
               <div class="d-flex flex-wrap align-items-center gap-2">
                 <div class="bs-hs-detail-ma">${this._esc(h.ma_hs || '')}</div>
-                <span class="bs-hs-badge-readonly">Chỉ xem — tra cứu</span>
+                ${badgeLoai}
               </div>
               <div class="bs-hs-detail-name">${this._esc(tenBn || '—')}</div>
               <div class="bs-hs-detail-chips">${chips.join('')}</div>
@@ -713,16 +963,7 @@ const PageBacSiDashboard = {
             <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._dongChiTietTraCuu()">Tắt</button>
           </div>
         </div>
-        <div class="bs-hs-detail-body">
-          <section class="bs-hs-readonly-section">
-            <h4 class="bs-hs-readonly-title">Chẩn đoán</h4>
-            ${this._renderChanDoanDocHtml(h.chan_doan)}
-          </section>
-          <section class="bs-hs-readonly-section">
-            <h4 class="bs-hs-readonly-title">Toa thuốc đã kê</h4>
-            ${this._renderToaThuocDocHtml(h)}
-          </section>
-        </div>
+        <div class="bs-hs-detail-body">${bodyTiem}</div>
       </div>`;
   },
 
@@ -759,7 +1000,6 @@ const PageBacSiDashboard = {
             <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._chuyenNhapChanDoan()">Nhập chẩn đoán</button>
             <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')">Kê đơn</button>
             <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">Tiêm chủng</button>
-            <button type="button" class="btn btn-outline-secondary" onclick="PageBacSiDashboard._henTaiKhamNhanh()">Hẹn tái khám</button>
             <button type="button" class="btn btn-outline-danger" onclick="PageBacSiDashboard._hoanTatKham()">Hoàn tất khám</button>
           </div>
         </div>
@@ -783,206 +1023,6 @@ const PageBacSiDashboard = {
       return;
     }
     await this.chuyenTrang('chan-doan');
-  },
-
-  async _henTaiKhamNhanh() {
-    if (!this._hoSoId || !this._benhNhanId) {
-      Toast.loi(
-        'Chưa chọn hồ sơ / bệnh nhân',
-        'Mở hồ sơ từ Tổng quan hoặc tab Hồ sơ bệnh nhân trước.',
-        'error'
-      );
-      return;
-    }
-    const bs = this._bacSiId();
-    if (!bs) return Toast.loi('Không lấy được mã bác sĩ', '', 'error');
-
-    this._dongModalHenTaiKham();
-    const defDt = this._defaultTaiKhamDatetimeLocal();
-    const overlay = document.createElement('div');
-    overlay.id = 'bs-hen-tk-overlay';
-    overlay.setAttribute('role', 'dialog');
-    overlay.style.cssText =
-      'position:fixed;inset:0;z-index:10050;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box';
-    overlay.innerHTML = `
-      <div class="card shadow" style="max-width:440px;width:100%;max-height:90vh;overflow:auto">
-        <div class="card-header d-flex justify-content-between align-items-center py-2">
-          <span class="card-title mb-0">Đặt lịch hẹn tái khám</span>
-          <button type="button" class="btn btn-sm btn-light border" title="Đóng" onclick="PageBacSiDashboard._dongModalHenTaiKham()">×</button>
-        </div>
-        <div class="card-body">
-          <p class="small text-muted mb-2">Bệnh nhân đang mở — hồ sơ gắn với lần khám hiện tại.</p>
-          <label class="small">Ngày giờ tái khám</label>
-          <input type="datetime-local" id="bs-hen-tk-ngay" class="form-control form-control-sm mb-2" value="${this._esc(defDt)}" />
-          <label class="small">Lý do tái khám</label>
-          <textarea id="bs-hen-tk-ly" class="form-control form-control-sm mb-2" rows="2">Tái khám theo hẹn</textarea>
-          <label class="small">Ghi chú (tuỳ chọn)</label>
-          <textarea id="bs-hen-tk-gc" class="form-control form-control-sm mb-3" rows="2" placeholder="Ghi chú nội bộ"></textarea>
-          <div class="d-flex gap-2 justify-content-end flex-wrap">
-            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="PageBacSiDashboard._dongModalHenTaiKham()">Huỷ</button>
-            <button type="button" class="btn btn-primary btn-sm" onclick="PageBacSiDashboard._guiHenTaiKhamModal()">Lưu lịch</button>
-          </div>
-        </div>
-      </div>`;
-    overlay.onclick = (ev) => {
-      if (ev.target === overlay) this._dongModalHenTaiKham();
-    };
-    document.body.appendChild(overlay);
-    setTimeout(() => document.getElementById('bs-hen-tk-ngay')?.focus(), 50);
-  },
-
-  async _guiHenTaiKhamModal() {
-    const ngayRaw = document.getElementById('bs-hen-tk-ngay')?.value;
-    const ly = (document.getElementById('bs-hen-tk-ly')?.value || '').trim() || 'Tái khám';
-    const gc = (document.getElementById('bs-hen-tk-gc')?.value || '').trim();
-    const ngay = this._localDatetimeToNgayHenApi(ngayRaw);
-    if (!ngay) {
-      Toast.loi('Chọn ngày giờ', '', 'error');
-      return;
-    }
-    if (!this._hoSoId || !this._benhNhanId) return;
-    const bs = this._bacSiId();
-    if (!bs) return Toast.loi('Không lấy được mã bác sĩ', '', 'error');
-    const body = {
-      benh_nhan: this._idStr(this._benhNhanId),
-      ho_so: this._hoSoId,
-      bac_si: bs,
-      ngay_hen: ngay,
-      ly_do: ly,
-      ghi_chu: gc,
-    };
-    const res = await Http.tao('/benh-an/lich-hen-tai-kham/', body);
-    if (res.ok) {
-      this._dongModalHenTaiKham();
-      Toast.hien('Đã tạo lịch tái khám', (res.data && res.data.ma_hen) || '', 'success');
-      const main = document.getElementById('bac-si-main');
-      if (main && main.querySelector('#bs-tk-bang')) await this._taiKhamLoad();
-    } else Toast.loi('Không tạo được', this._msgApiLoi(res), 'error');
-  },
-
-  async _formTaiKham(host) {
-    const tu0 = this._formatDateYMD(new Date());
-    const dn = new Date();
-    dn.setDate(dn.getDate() + 60);
-    const den0 = this._formatDateYMD(dn);
-    UI.render(host, `
-      <div class="card mb-3">
-        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-          <div class="card-title mb-0">Lịch hẹn tái khám của bạn</div>
-          <button type="button" class="btn btn-sm btn-primary" onclick="PageBacSiDashboard._henTaiKhamNhanh()">Đặt lịch cho BN đang mở</button>
-        </div>
-        <div class="card-body">
-          <div class="row g-2 align-items-end mb-3">
-            <div class="col-auto">
-              <label class="small d-block">Từ ngày</label>
-              <input type="date" id="bs-tk-tu" class="form-control form-control-sm" value="${this._esc(tu0)}" />
-            </div>
-            <div class="col-auto">
-              <label class="small d-block">Đến ngày</label>
-              <input type="date" id="bs-tk-den" class="form-control form-control-sm" value="${this._esc(den0)}" />
-            </div>
-            <div class="col-auto">
-              <button type="button" class="btn btn-sm btn-outline-primary" onclick="PageBacSiDashboard._taiKhamLoad()">Tải danh sách</button>
-            </div>
-            <div class="col-auto">
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._taiKhamPresetHomNay()">Hôm nay</button>
-            </div>
-            <div class="col-auto">
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._taiKhamPresetTuan()">7 ngày tới</button>
-            </div>
-          </div>
-          <div id="bs-tk-bang"></div>
-        </div>
-      </div>
-      <p class="text-muted small">Đặt lịch từ tóm tắt hồ sơ hoặc màn <strong>Chẩn đoán</strong> khi đang mở bệnh nhân. Giờ theo múi giờ hệ thống.</p>
-    `);
-    await this._taiKhamLoad();
-  },
-
-  _taiKhamPresetHomNay() {
-    const t = this._formatDateYMD(new Date());
-    const elTu = document.getElementById('bs-tk-tu');
-    const elDen = document.getElementById('bs-tk-den');
-    if (elTu) elTu.value = t;
-    if (elDen) elDen.value = t;
-    this._taiKhamLoad();
-  },
-
-  _taiKhamPresetTuan() {
-    const a = new Date();
-    const b = new Date();
-    b.setDate(b.getDate() + 7);
-    const elTu = document.getElementById('bs-tk-tu');
-    const elDen = document.getElementById('bs-tk-den');
-    if (elTu) elTu.value = this._formatDateYMD(a);
-    if (elDen) elDen.value = this._formatDateYMD(b);
-    this._taiKhamLoad();
-  },
-
-  async _taiKhamLoad() {
-    const el = document.getElementById('bs-tk-bang');
-    if (!el) return;
-    const tu = document.getElementById('bs-tk-tu')?.value;
-    const den = document.getElementById('bs-tk-den')?.value;
-    if (!tu || !den) {
-      el.innerHTML = '<p class="text-danger small">Chọn đủ từ ngày và đến ngày.</p>';
-      return;
-    }
-    if (tu > den) {
-      el.innerHTML = '<p class="text-danger small">Từ ngày không được sau đến ngày.</p>';
-      return;
-    }
-    const qs = new URLSearchParams({
-      ordering: 'ngay_hen',
-      page_size: '200',
-      tu_ngay: tu,
-      den_ngay: den,
-    });
-    el.innerHTML = '<p class="text-muted small mb-0">Đang tải…</p>';
-    const res = await Http.layDanhSach(`/benh-an/lich-hen-tai-kham/?${qs}`);
-    const rows = (res.data && res.data.results) || res.data || [];
-    const list = Array.isArray(rows) ? rows : [];
-    if (!res.ok) {
-      el.innerHTML = `<p class="text-danger small">Không tải được: ${this._esc(this._msgApiLoi(res))}</p>`;
-      return;
-    }
-    if (!list.length) {
-      el.innerHTML = '<p class="text-muted small mb-0">Không có lịch trong khoảng đã chọn.</p>';
-      return;
-    }
-    el.innerHTML = `<div class="table-responsive"><table class="table table-sm table-hover mb-0 align-middle">
-      <thead><tr><th>Ngày giờ</th><th>Bệnh nhân</th><th>Mã BN</th><th>Mã HS</th><th>Lý do</th><th>Trạng thái</th><th></th></tr></thead><tbody>
-      ${list
-        .map((r) => {
-          const id = r.id;
-          const tgn = (r.ngay_hen || '').toString().slice(0, 16);
-          const actions =
-            r.trang_thai === 'CHUA_KHAM'
-              ? `<button type="button" class="btn btn-sm btn-success" onclick="PageBacSiDashboard._capNhatTaiKhamTT('${id}','DA_KHAM')">Đã khám</button> <button type="button" class="btn btn-sm btn-outline-danger" onclick="PageBacSiDashboard._capNhatTaiKhamTT('${id}','HUY')">Huỷ</button>`
-              : '—';
-          return `<tr>
-          <td>${this._esc(tgn)}</td>
-          <td>${this._esc(r.ten_benh_nhan || '')}</td>
-          <td>${this._esc(r.ma_benh_nhan || '')}</td>
-          <td>${this._esc(r.ma_hs || '')}</td>
-          <td>${this._esc(this._shortText(r.ly_do, 80))}</td>
-          <td><span class="badge bg-light text-dark border">${this._esc(this._trangThaiTaiKham(r.trang_thai))}</span></td>
-          <td class="text-nowrap text-end">${actions}</td>
-        </tr>`;
-        })
-        .join('')}
-    </tbody></table></div>`;
-  },
-
-  async _capNhatTaiKhamTT(id, trangThai) {
-    if (!id) return;
-    const res = await Http.tao(`/benh-an/lich-hen-tai-kham/${id}/cap_nhat_trang_thai/`, {
-      trang_thai: trangThai,
-    });
-    if (res.ok) {
-      Toast.hien('Đã cập nhật', '', 'success');
-      await this._taiKhamLoad();
-    } else Toast.loi('Không cập nhật được', this._msgApiLoi(res), 'error');
   },
 
   async _formChanDoan(host) {
@@ -1051,8 +1091,7 @@ const PageBacSiDashboard = {
               <div class="small text-muted mb-2">Thao tác tiếp theo</div>
               <div class="d-flex flex-wrap gap-2">
                 <button type="button" class="btn btn-sm btn-success" onclick="PageBacSiDashboard.chuyenTrang('don-thuoc')">Kê đơn thuốc</button>
-                <button type="button" class="btn btn-sm btn-info text-white" onclick="PageBacSiDashboard.chuyenTrang('chi-dinh')">Tiêm chủng</button>
-                <button type="button" class="btn btn-sm btn-secondary" onclick="PageBacSiDashboard._henTaiKhamNhanh()">Hẹn tái khám</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._boQuaKeDon()">Không kê đơn</button>
               </div>
             </div>
             <pre id="cd-out" class="mt-3 small text-muted" style="white-space:pre-wrap"></pre>
@@ -1184,6 +1223,8 @@ const PageBacSiDashboard = {
       if (ten) ten.value = cd.ten_benh || '';
       if (mo) mo.value = cd.mo_ta || '';
       if (kl) kl.value = cd.ket_luan || '';
+      const nx = document.getElementById('bs-cd-next');
+      if (nx && (cd.ten_benh || '').trim()) nx.style.display = 'block';
     }
   },
 
@@ -1217,74 +1258,211 @@ const PageBacSiDashboard = {
 
   _dtLines: [],
   _dtLastList: [],
+  _dtPendingThuoc: null,
+
+  async _boQuaKeDon() {
+    if (!this._hoSoId) {
+      Toast.loi('Chưa có hồ sơ lần khám', 'Mở hồ sơ từ lịch hoặc chẩn đoán trước.', 'error');
+      return;
+    }
+    const ok = confirm(
+      'Không kê đơn thuốc cho lần khám này?\n\nBạn vẫn có thể bấm Hoàn tất khám khi xong.'
+    );
+    if (!ok) return;
+    Toast.hien('Đã bỏ qua kê đơn', 'Không tạo toa thuốc cho lần khám này.', 'success');
+    if (this._hoSoId) {
+      await this.chuyenTrang('ho-so');
+      await this._loadChiTietHoSo(this._hoSoId, { traCuu: false });
+    }
+  },
 
   async _formDonThuoc(host) {
     const hs = this._esc(this._hoSoId || '');
     const ps = this._patientSnapshot;
     const bnLine = ps
       ? `${this._esc(ps.tenBn)} — Mã BN ${this._esc(ps.maBn)} — HS ${this._esc(ps.maHs)}`
-      : '';
+      : '—';
     this._dtLines = [];
+    this._dtPendingThuoc = null;
     UI.render(host, `
-      <div class="card"><div class="card-header"><div class="card-title">Kê đơn thuốc</div></div>
-      <div class="card-body">
-        ${bnLine ? `<p class="small fw-semibold text-primary mb-2">${bnLine}</p>` : ''}
-        <p class="small text-muted">Hồ sơ: <code id="dt-hs-lbl">${hs || '—'}</code></p>
-        <input id="dt-hs" type="hidden" value="${hs}"/>
-        <label class="small">Chẩn đoán / ghi chú toa</label>
-        <input id="dt-chuan" class="form-control form-control-sm mb-2" placeholder="Tóm tắt chẩn đoán (hiển thị trên toa)"/>
-        <hr/>
-        <p class="small fw-semibold mb-1">Thêm thuốc trong danh mục</p>
-        <div class="input-group input-group-sm mb-2" style="max-width:420px">
-          <input id="dt-tim-thuoc" class="form-control" placeholder="Tìm tên hoặc mã thuốc…"/>
-          <button type="button" class="btn btn-outline-primary" onclick="PageBacSiDashboard._dtTimThuoc()">Tìm</button>
+      <div class="bs-dt-page">
+        <div class="bs-dt-hero">
+          <div class="bs-dt-hero-icon" aria-hidden="true"><i class="fas fa-prescription-bottle-alt"></i></div>
+          <div>
+            <h2 class="bs-dt-hero-title">Kê đơn thuốc</h2>
+            <p class="bs-dt-hero-sub">Thêm thuốc trong kho hoặc mua ngoài — có thể bỏ qua nếu không cần kê toa.</p>
+          </div>
         </div>
-        <div id="dt-kq-tim" class="small mb-3"></div>
-        <p class="small fw-semibold mb-1">Thuốc mua ngoài (không có trong hệ thống)</p>
-        <div class="row g-2 mb-2">
-          <div class="col-md-4"><input id="dt-ngoai-ten" class="form-control form-control-sm" placeholder="Tên thuốc"/></div>
-          <div class="col-md-2"><input id="dt-ngoai-sl" type="number" min="1" class="form-control form-control-sm" placeholder="SL"/></div>
-          <div class="col-md-3"><input id="dt-ngoai-lieu" class="form-control form-control-sm" placeholder="Liều (VD: 1 viên)"/></div>
-          <div class="col-md-3"><input id="dt-ngoai-cach" class="form-control form-control-sm" placeholder="Cách uống / ghi chú"/></div>
+        <div class="bs-dt-grid">
+          <aside class="bs-dt-aside card">
+            <div class="card-body">
+              <div class="bs-dt-patient-name">${bnLine}</div>
+              <p class="bs-dt-meta">Hồ sơ <code id="dt-hs-lbl">${hs || '—'}</code></p>
+              <input id="dt-hs" type="hidden" value="${hs}"/>
+              <div id="dt-cd-banner" class="bs-dt-banner bs-dt-banner--warn" style="display:none"></div>
+              <label class="bs-dt-label" for="dt-chuan">Chẩn đoán trên toa</label>
+              <input id="dt-chuan" class="form-control bs-dt-input" placeholder="Tóm tắt hiển thị trên đơn thuốc"/>
+              <button type="button" class="btn btn-outline-secondary btn-sm w-100 mt-3" onclick="PageBacSiDashboard._boQuaKeDon()">
+                <i class="fas fa-forward"></i> Không kê đơn thuốc
+              </button>
+            </div>
+          </aside>
+          <div class="bs-dt-main">
+            <section class="bs-dt-panel card">
+              <div class="card-header bs-dt-panel-head"><i class="fas fa-search"></i> Tìm thuốc trong danh mục</div>
+              <div class="card-body">
+                <div class="bs-dt-search-row">
+                  <input id="dt-tim-thuoc" class="form-control" placeholder="Tên hoặc mã thuốc…"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();PageBacSiDashboard._dtTimThuoc();}"/>
+                  <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._dtTimThuoc()">Tìm</button>
+                </div>
+                <div id="dt-kq-tim" class="bs-dt-search-results"></div>
+                <div id="dt-them-form" class="bs-dt-add-form" style="display:none"></div>
+              </div>
+            </section>
+            <section class="bs-dt-panel card">
+              <div class="card-header bs-dt-panel-head"><i class="fas fa-store"></i> Thuốc mua ngoài</div>
+              <div class="card-body">
+                <div class="bs-dt-ngoai-grid">
+                  <input id="dt-ngoai-ten" class="form-control" placeholder="Tên thuốc"/>
+                  <input id="dt-ngoai-sl" type="number" min="1" class="form-control" placeholder="SL"/>
+                  <input id="dt-ngoai-lieu" class="form-control" placeholder="Liều (VD: 1 viên)"/>
+                  <input id="dt-ngoai-cach" class="form-control" placeholder="Cách dùng / ghi chú"/>
+                </div>
+                <button type="button" class="btn btn-outline-primary btn-sm mt-2" onclick="PageBacSiDashboard._dtThemNgoai()">
+                  <i class="fas fa-plus"></i> Thêm vào toa
+                </button>
+              </div>
+            </section>
+            <section class="bs-dt-panel card">
+              <div class="card-header bs-dt-panel-head d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span><i class="fas fa-list"></i> Toa đang soạn</span>
+                <span id="dt-count" class="bs-dt-count">0 thuốc</span>
+              </div>
+              <div class="card-body p-0">
+                <div id="dt-bang" class="bs-dt-table-wrap"><p class="text-muted small p-3 mb-0">Chưa có thuốc — tìm trong danh mục hoặc thêm mua ngoài.</p></div>
+              </div>
+            </section>
+            <div class="bs-dt-actions">
+              <button type="button" class="btn btn-outline-secondary" onclick="PageBacSiDashboard._boQuaKeDon()">Không kê đơn</button>
+              <button type="button" class="btn btn-primary bs-dt-btn-save" onclick="PageBacSiDashboard._guiDonThuoc()">
+                <i class="fas fa-save"></i> Lưu toa thuốc
+              </button>
+            </div>
+          </div>
         </div>
-        <button type="button" class="btn btn-sm btn-outline-secondary mb-3" onclick="PageBacSiDashboard._dtThemNgoai()">Thêm dòng mua ngoài</button>
-        <p class="small fw-semibold">Toa hiện tại (BN sẽ thấy đủ thuốc trong kho + mua ngoài)</p>
-        <div id="dt-bang" class="table-responsive mb-3"><p class="text-muted small">Chưa có thuốc.</p></div>
-        <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._guiDonThuoc()">Lưu toa thuốc</button>
-      </div></div>`);
+      </div>`);
+    await this._dtLoadChanDoanTuHoSo();
+  },
+
+  async _dtLoadChanDoanTuHoSo() {
+    const id = document.getElementById('dt-hs')?.value?.trim() || this._hoSoId;
+    const banner = document.getElementById('dt-cd-banner');
+    const chuan = document.getElementById('dt-chuan');
+    if (!id) {
+      if (banner) {
+        banner.style.display = 'block';
+        banner.innerHTML =
+          '<i class="fas fa-info-circle"></i> Chưa chọn hồ sơ — mở từ <strong>Lịch hôm nay</strong> hoặc lưu chẩn đoán trước.';
+      }
+      return;
+    }
+    const res = await Http.layDanhSach(`/benh-an/ho-so-benh-an/${id}/`);
+    if (!res.ok || !res.data) return;
+    const h = res.data;
+    const cd = h.chan_doan;
+    if (chuan) {
+      const ten = cd && cd.ten_benh ? cd.ten_benh : '';
+      const kl = cd && cd.ket_luan ? cd.ket_luan : '';
+      chuan.value = (chuan.value || '').trim() || [ten, kl].filter(Boolean).join(' — ');
+    }
+    if (banner) {
+      if (cd && (cd.ten_benh || cd.ket_luan)) {
+        banner.className = 'bs-dt-banner bs-dt-banner--ok';
+        banner.style.display = 'block';
+        banner.innerHTML = `<i class="fas fa-check-circle"></i> Đã có chẩn đoán: <strong>${this._esc(cd.ten_benh || '')}</strong>${cd.ma_icd10 ? ` (${this._esc(cd.ma_icd10)})` : ''}`;
+      } else {
+        banner.className = 'bs-dt-banner bs-dt-banner--warn';
+        banner.style.display = 'block';
+        banner.innerHTML =
+          '<i class="fas fa-exclamation-triangle"></i> Chưa ghi chẩn đoán — nên lưu chẩn đoán trước hoặc bấm <strong>Không kê đơn</strong>.';
+      }
+    }
   },
 
   async _dtTimThuoc() {
     const q = document.getElementById('dt-tim-thuoc')?.value?.trim();
     const box = document.getElementById('dt-kq-tim');
+    const formEl = document.getElementById('dt-them-form');
+    if (formEl) {
+      formEl.style.display = 'none';
+      formEl.innerHTML = '';
+    }
+    this._dtPendingThuoc = null;
     if (!q || !box) return;
+    box.innerHTML = '<p class="text-muted small mb-0"><span class="spinner-border spinner-border-sm"></span> Đang tìm…</p>';
     const res = await Http.layDanhSach(`/thuoc/thuoc/?search=${encodeURIComponent(q)}&page_size=15`);
     const rows = res.data?.results || res.data || [];
     const list = Array.isArray(rows) ? rows : [];
     if (!res.ok || !list.length) {
-      box.innerHTML = '<span class="text-muted">Không tìm thấy — dùng phần thuốc mua ngoài bên dưới.</span>';
+      box.innerHTML =
+        '<p class="bs-dt-empty-hint"><i class="fas fa-info-circle"></i> Không tìm thấy — thử từ khóa khác hoặc thêm <strong>thuốc mua ngoài</strong>.</p>';
       return;
     }
     this._dtLastList = list;
-    box.innerHTML = `<div class="list-group">${list
+    box.innerHTML = `<div class="bs-dt-pick-list">${list
       .map(
-        (t, i) => `<button type="button" class="list-group-item list-group-item-action py-1 text-start" onclick="PageBacSiDashboard._dtChonThuoc(${i})">${this._esc(t.ten_thuoc)} <span class="text-muted">(${this._esc(t.ma_thuoc)})</span></button>`
+        (t, i) => `<button type="button" class="bs-dt-pick-item" onclick="PageBacSiDashboard._dtMoFormThem(${i})">
+          <span class="bs-dt-pick-name">${this._esc(t.ten_thuoc)}</span>
+          <span class="bs-dt-pick-code">${this._esc(t.ma_thuoc || '')}</span>
+        </button>`
       )
       .join('')}</div>`;
   },
 
-  _dtChonThuoc(i) {
+  _dtMoFormThem(i) {
     const t = this._dtLastList[i];
     if (!t) return;
-    const ten = t.ten_thuoc;
-    const sl = parseInt(prompt(`Số lượng — ${ten}`, '10'), 10);
-    if (!sl || sl < 1) return;
-    const lieu = prompt('Liều dùng mỗi lần (VD: 1 viên)', '1 viên') || '1 viên';
-    const cach = prompt('Cách uống / tần suất (ghi chú)', 'Sáng, sau ăn') || '';
+    this._dtPendingThuoc = t;
+    const formEl = document.getElementById('dt-them-form');
+    if (!formEl) return;
+    formEl.style.display = 'block';
+    formEl.innerHTML = `
+      <div class="bs-dt-add-form-inner">
+        <div class="bs-dt-add-form-title">Thêm: <strong>${this._esc(t.ten_thuoc)}</strong></div>
+        <div class="bs-dt-add-fields">
+          <div><label class="bs-dt-label">Số lượng</label><input id="dt-add-sl" type="number" min="1" class="form-control" value="10"/></div>
+          <div><label class="bs-dt-label">Liều dùng</label><input id="dt-add-lieu" class="form-control" value="1 viên"/></div>
+          <div><label class="bs-dt-label">Cách dùng / ghi chú</label><input id="dt-add-cach" class="form-control" value="Sáng, sau ăn"/></div>
+        </div>
+        <div class="bs-dt-add-actions">
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="PageBacSiDashboard._dtDongFormThem()">Hủy</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="PageBacSiDashboard._dtXacNhanThem()"><i class="fas fa-plus"></i> Thêm vào toa</button>
+        </div>
+      </div>`;
+    formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  },
+
+  _dtDongFormThem() {
+    this._dtPendingThuoc = null;
+    const formEl = document.getElementById('dt-them-form');
+    if (formEl) {
+      formEl.style.display = 'none';
+      formEl.innerHTML = '';
+    }
+  },
+
+  _dtXacNhanThem() {
+    const t = this._dtPendingThuoc;
+    if (!t) return;
+    const sl = parseInt(document.getElementById('dt-add-sl')?.value || '0', 10);
+    const lieu = document.getElementById('dt-add-lieu')?.value?.trim() || '1 viên';
+    const cach = document.getElementById('dt-add-cach')?.value?.trim() || '';
+    if (!sl || sl < 1) return Toast.loi('Nhập số lượng hợp lệ', '', 'error');
     this._dtLines.push({
       loai: 'trong_kho',
       thuoc: t.id,
-      ten,
+      ten: t.ten_thuoc,
       so_luong: sl,
       lieu_dung: lieu,
       cach_dung: 'UONG',
@@ -1292,7 +1470,9 @@ const PageBacSiDashboard = {
       so_ngay_dung: 5,
       tan_suat: cach,
     });
+    this._dtDongFormThem();
     this._dtVeBang();
+    Toast.hien('Đã thêm', t.ten_thuoc, 'success');
   },
 
   _dtThemNgoai() {
@@ -1326,17 +1506,32 @@ const PageBacSiDashboard = {
 
   _dtVeBang() {
     const el = document.getElementById('dt-bang');
+    const cnt = document.getElementById('dt-count');
+    if (cnt) cnt.textContent = `${this._dtLines.length} thuốc`;
     if (!el) return;
     if (!this._dtLines.length) {
-      el.innerHTML = '<p class="text-muted small">Chưa có thuốc.</p>';
+      el.innerHTML =
+        '<p class="text-muted small p-3 mb-0">Chưa có thuốc — tìm trong danh mục hoặc thêm mua ngoài.</p>';
       return;
     }
-    el.innerHTML = `<table class="table table-sm table-bordered mb-0"><thead><tr><th>Loại</th><th>Tên</th><th>SL</th><th>Liều</th><th>Cách dùng</th><th></th></tr></thead><tbody>
+    el.innerHTML = `<table class="table bs-dt-table mb-0"><thead><tr>
+      <th>Loại</th><th>Tên thuốc</th><th class="text-center">SL</th><th>Liều</th><th>Cách dùng</th><th></th>
+    </tr></thead><tbody>
       ${this._dtLines
         .map((r, i) => {
-          const loai = r.loai === 'ngoai' ? '<span class="badge bg-warning text-dark">Mua ngoài</span>' : '<span class="badge bg-success">Trong kho</span>';
+          const loai =
+            r.loai === 'ngoai'
+              ? '<span class="bs-dt-badge bs-dt-badge--ngoai">Mua ngoài</span>'
+              : '<span class="bs-dt-badge bs-dt-badge--kho">Trong kho</span>';
           const ten = r.loai === 'ngoai' ? r.ten_thuoc_tu_do : r.ten;
-          return `<tr><td>${loai}</td><td>${this._esc(ten)}</td><td>${r.so_luong}</td><td>${this._esc(r.lieu_dung)}</td><td class="small">${this._esc(r.tan_suat || '')}</td><td><button type="button" class="btn btn-sm btn-link text-danger p-0" onclick="PageBacSiDashboard._dtXoa(${i})">Xóa</button></td></tr>`;
+          return `<tr>
+            <td>${loai}</td>
+            <td class="fw-semibold">${this._esc(ten)}</td>
+            <td class="text-center">${r.so_luong}</td>
+            <td>${this._esc(r.lieu_dung)}</td>
+            <td class="small text-muted">${this._esc(r.tan_suat || '—')}</td>
+            <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="PageBacSiDashboard._dtXoa(${i})" title="Xóa"><i class="fas fa-trash-alt"></i></button></td>
+          </tr>`;
         })
         .join('')}
     </tbody></table>`;
@@ -1371,8 +1566,163 @@ const PageBacSiDashboard = {
       };
     });
     const res = await Http.tao(`/benh-an/ho-so-benh-an/${id}/tao_don_thuoc/`, { chuan_doan, chi_tiet });
-    if (res.ok) Toast.hien('Đã tạo toa', res.data?.ma_don ? `Mã: ${res.data.ma_don}` : '', 'success');
-    else Toast.loi('Không tạo được toa', (res.data && (res.data.detail || JSON.stringify(res.data))) || '', 'error');
+    if (res.ok) {
+      Toast.hien('Đã tạo toa', res.data?.ma_don ? `Mã: ${res.data.ma_don}` : '', 'success');
+      this._dtLines = [];
+      this._dtVeBang();
+      if (this._hoSoId) await this._loadChiTietHoSo(this._hoSoId, { traCuu: false });
+    } else Toast.loi('Không tạo được toa', (res.data && (res.data.detail || JSON.stringify(res.data))) || '', 'error');
+  },
+
+  async _chiDinh(host) {
+    const hs = this._esc(this._hoSoId || '');
+    const ps = this._patientSnapshot;
+    const ngayMacDinh = this._formatDateYMD(new Date());
+    const showHuyTiem = this._loaiLichHen === 'TIEM_CHUNG' && !!this._lichHenId;
+    const bnLine = ps
+      ? `<p class="small fw-semibold text-primary mb-2">${this._esc(ps.tenBn)} — Mã BN ${this._esc(ps.maBn)} — HS ${this._esc(ps.maHs)}</p>`
+      : '';
+    const alertLich = this._loaiLichHen === 'TIEM_CHUNG'
+      ? `<div class="alert alert-info py-2 small mb-3"><i class="fas fa-syringe"></i> Lịch hẹn <strong>tiêm chủng</strong> — chọn vaccine (đã gợi ý từ lịch), bấm lưu để ghi hồ sơ, <strong>trừ 1 liều tồn kho</strong> (lô còn hạn, nhập trước) và kết thúc lịch. Nếu bệnh nhân <strong>không đạt yêu cầu</strong>, bấm <strong>Huỷ tiêm</strong> (không trừ kho).</div>`
+      : !hs
+        ? '<div class="alert alert-warning py-2 small mb-3">Chưa có hồ sơ — mở từ <strong>Lịch hôm nay</strong> hoặc hàng chờ check-in trước.</div>'
+        : '';
+    const btnLuu = this._loaiLichHen === 'TIEM_CHUNG'
+      ? 'Lưu tiêm chủng &amp; hoàn tất lịch'
+      : 'Lưu tiêm chủng vào hồ sơ';
+    UI.render(host, `
+      <div class="card"><div class="card-header"><div class="card-title">Tiêm chủng</div></div><div class="card-body">
+        ${bnLine}
+        ${alertLich}
+        <p class="small text-muted mb-2">Hồ sơ: <code>${hs || '—'}</code></p>
+        <input id="ti-hs" type="hidden" value="${hs}"/>
+        <label class="small fw-semibold">Vaccine</label>
+        <select id="ti-vc" class="form-control mb-2"></select>
+        <label class="small fw-semibold">Ngày tiêm</label>
+        <input id="ti-ngay" class="form-control mb-2" type="date" value="${this._esc(ngayMacDinh)}"/>
+        <label class="small fw-semibold" for="ti-ghi-chu">Ghi chú tiêm chủng</label>
+        <textarea id="ti-ghi-chu" class="form-control mb-3" rows="3" placeholder="Ghi chú sau khám / sau tiêm…"></textarea>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._guiTiem()">${btnLuu}</button>
+          ${showHuyTiem ? `<button type="button" class="btn btn-outline-danger" onclick="PageBacSiDashboard._huyTiemChungKhongDat()"><i class="fas fa-ban"></i> Huỷ tiêm — không đạt yêu cầu</button>` : ''}
+          ${this._loaiLichHen === 'TIEM_CHUNG' ? '' : '<button type="button" class="btn btn-outline-secondary" onclick="PageBacSiDashboard.chuyenTrang(\'ho-so\')">Quay hồ sơ</button>'}
+        </div>
+        <p id="ti-msg" class="small text-muted mt-2 mb-0"></p>
+      </div></div>`);
+    await this._taiDanhSachVaccineTiem();
+    this._dienGhiChuTiemForm();
+  },
+
+  async _huyTiemChungKhongDat() {
+    const hoSoId = document.getElementById('ti-hs')?.value?.trim() || this._hoSoId;
+    const lichId = this._lichHenId;
+    if (!hoSoId && !lichId) {
+      return Toast.loi('Chưa có hồ sơ / lịch', 'Mở lịch tiêm chủng trước.', 'error');
+    }
+    const lyDo = window.prompt(
+      'Lý do bệnh nhân không đạt yêu cầu tiêm chủng (bắt buộc):',
+      'Chống chỉ định / chưa đủ điều kiện tiêm'
+    );
+    if (lyDo == null) return;
+    const reason = lyDo.trim();
+    if (!reason) return Toast.loi('Nhập lý do huỷ', '', 'error');
+    if (!window.confirm('Xác nhận huỷ tiêm chủng cho lần khám này?\nLịch sẽ chuyển sang đã huỷ.')) {
+      return;
+    }
+
+    const vaccineId =
+      (document.getElementById('ti-vc')?.value || '').trim() || this._vaccineLichHenId;
+    const ngayTiem = document.getElementById('ti-ngay')?.value || this._formatDateYMD(new Date());
+    const ghiChuForm = (document.getElementById('ti-ghi-chu')?.value || '').trim();
+    const ghiChuLuu = ghiChuForm || reason;
+
+    if (lichId) {
+      await Http.suaCuc(`/lich-hen/lich-tiem/${lichId}/`, {
+        trang_thai_tiem: 'CHONG_CHI_DINH',
+        ghi_chu: ghiChuLuu,
+      });
+      const huyRes = await Http.tao(`/lich-hen/lich-hen/${lichId}/huy/`, { ly_do: reason });
+      if (!huyRes.ok) {
+        return Toast.loi('Không huỷ được lịch', this._msgApiLoi(huyRes), 'error');
+      }
+    }
+
+    if (hoSoId && vaccineId) {
+      await Http.tao(`/benh-an/ho-so-benh-an/${hoSoId}/chi_dinh_tiem/`, {
+        vaccine: vaccineId,
+        ngay_tiem: ngayTiem,
+        trang_thai: 'CHONG_CHI_DINH',
+        ghi_chu: ghiChuLuu,
+      });
+    } else if (hoSoId && !vaccineId) {
+      Toast.hien('Đã huỷ lịch', 'Chưa ghi hồ sơ tiêm (thiếu vaccine trên form).', 'warning');
+    }
+
+    this._hoSoId = null;
+    this._benhNhanId = null;
+    this._lichHenId = null;
+    this._loaiLichHen = null;
+    this._vaccineLichHenId = null;
+    this._lichTiemSnapshot = null;
+    this._patientSnapshot = null;
+    this._refreshPatientStrip();
+    Toast.hien('Đã huỷ tiêm chủng', reason, 'success');
+    await this.chuyenTrang('ho-so');
+    const el = document.getElementById('bs-ds-hom-nay');
+    if (el) await this._loadDsLichHomNay();
+  },
+
+  async _guiTiem() {
+    let id = document.getElementById('ti-hs')?.value?.trim() || this._hoSoId;
+    if (!id) return Toast.loi('Chưa có hồ sơ', 'Mở lịch tiêm chủng hoặc hồ sơ bệnh nhân trước.', 'error');
+    const vaccineId = (document.getElementById('ti-vc')?.value || '').trim();
+    if (!vaccineId) return Toast.loi('Chọn vaccine trước khi lưu', '', 'error');
+    const ngayTiem = document.getElementById('ti-ngay')?.value || this._formatDateYMD(new Date());
+    const ghiChu = (document.getElementById('ti-ghi-chu')?.value || '').trim();
+    const body = {
+      vaccine: vaccineId,
+      ngay_tiem: ngayTiem,
+      trang_thai: 'DA_TIEM',
+      ghi_chu: ghiChu,
+    };
+    const res = await Http.tao(`/benh-an/ho-so-benh-an/${id}/chi_dinh_tiem/`, body);
+    const msgEl = document.getElementById('ti-msg');
+    if (!res.ok) {
+      if (msgEl) msgEl.textContent = '';
+      return Toast.loi('Không lưu được', this._msgApiLoi(res), 'error');
+    }
+
+    const lichId = this._lichHenId;
+    if (lichId) {
+      await Http.suaCuc(`/lich-hen/lich-tiem/${lichId}/`, {
+        trang_thai_tiem: 'DA_TIEM',
+        ghi_chu: ghiChu || this._lichTiemSnapshot?.ghi_chu || '',
+      });
+      const ht = await Http.tao(`/lich-hen/lich-hen/${lichId}/hoan_thanh/`, {});
+      if (!ht.ok) {
+        Toast.hien('Đã ghi tiêm vào hồ sơ', `Chưa kết thúc lịch: ${this._msgApiLoi(ht)}`, 'warning');
+        if (msgEl) msgEl.textContent = 'Đã lưu tiêm — vui lòng hoàn tất lịch thủ công.';
+        return;
+      }
+    }
+
+    const daHoanTatLich = !!this._lichHenId;
+    this._hoSoId = null;
+    this._benhNhanId = null;
+    this._lichHenId = null;
+    this._loaiLichHen = null;
+    this._vaccineLichHenId = null;
+    this._lichTiemSnapshot = null;
+    this._patientSnapshot = null;
+    this._refreshPatientStrip();
+    Toast.hien(
+      'Đã lưu tiêm chủng',
+      daHoanTatLich ? 'Hồ sơ đã cập nhật, lịch đã hoàn thành.' : 'Đã ghi vào hồ sơ lần khám.',
+      'success'
+    );
+    await this.chuyenTrang('ho-so');
+    const el = document.getElementById('bs-ds-hom-nay');
+    if (el) await this._loadDsLichHomNay();
   },
 
   async _taiDanhSachVaccineTiem() {
@@ -1394,41 +1744,14 @@ const PageBacSiDashboard = {
           return `<option value="${this._esc(v.id)}">${this._esc(label)}</option>`;
         })
         .join('');
-  },
-
-  async _chiDinh(host) {
-    const hs = this._esc(this._hoSoId || '');
-    const ps = this._patientSnapshot;
-    const bnLine = ps
-      ? `<p class="small fw-semibold text-primary mb-2">${this._esc(ps.tenBn)} — Mã BN ${this._esc(ps.maBn)} — HS ${this._esc(ps.maHs)}</p>`
-      : '';
-    UI.render(host, `
-      <div class="card"><div class="card-header">Tiêm chủng</div><div class="card-body">
-        ${bnLine}
-        <p class="small text-muted">Hồ sơ: <code>${hs || '—'}</code></p>
-        <input id="ti-hs" class="form-control mb-2" type="hidden" value="${hs}"/>
-        <label class="small">Vaccine</label>
-        <select id="ti-vc" class="form-control mb-2"></select>
-        <input id="ti-ngay" class="form-control mb-2" type="date"/>
-        <button type="button" class="btn btn-primary" onclick="PageBacSiDashboard._guiTiem()">Lưu</button>
-        <pre id="ti-out" class="mt-2 small"></pre>
-      </div></div>`);
-    await this._taiDanhSachVaccineTiem();
-  },
-
-  async _guiTiem() {
-    let id = document.getElementById('ti-hs')?.value?.trim() || this._hoSoId;
-    if (!id) return Toast.loi('Chưa có hồ sơ', '', 'error');
-    const vaccineId = (document.getElementById('ti-vc')?.value || '').trim();
-    if (!vaccineId) return Toast.loi('Chọn vaccine trước khi lưu', '', 'error');
-    const body = {
-      vaccine: vaccineId,
-      ngay_tiem: document.getElementById('ti-ngay').value,
-      trang_thai: 'HEN_TIEM',
-    };
-    const res = await Http.tao(`/benh-an/ho-so-benh-an/${id}/chi_dinh_tiem/`, body);
-    document.getElementById('ti-out').textContent = JSON.stringify(res.data, null, 2);
-    if (res.ok) Toast.hien('Đã lưu', '', 'success');
+    if (this._vaccineLichHenId) {
+      sel.value = this._vaccineLichHenId;
+      if (sel.value !== this._vaccineLichHenId) {
+        sel.appendChild(
+          new Option(`Vaccine lịch (${this._vaccineLichHenId.slice(0, 8)}…)`, this._vaccineLichHenId, true, true)
+        );
+      }
+    }
   },
 
 };

@@ -2,6 +2,8 @@
  * Nhân viên kế toán — duyệt chi nhập kho, giá bán, doanh thu / lợi nhuận, hóa đơn.
  */
 const PageKeToanDashboard = {
+  _khoSubTab: 'canh-bao',
+
   _esc(s) {
     if (s == null) return '';
     return String(s).replace(/[&<>"']/g, (c) =>
@@ -30,7 +32,8 @@ const PageKeToanDashboard = {
       <button type="button" class="nav-item" data-kt-nav="tom-tat" onclick="PageKeToanDashboard.loadMain('tom-tat')"><i class="fas fa-chart-pie"></i><span>Doanh thu / Lợi nhuận</span></button>
       <button type="button" class="nav-item" data-kt-nav="duyet-chi" onclick="PageKeToanDashboard.loadMain('duyet-chi')"><i class="fas fa-file-signature"></i><span>Duyệt phiếu nhập kho</span></button>
       <button type="button" class="nav-item" data-kt-nav="gia" onclick="PageKeToanDashboard.loadMain('gia')"><i class="fas fa-tags"></i><span>Cập nhật giá</span></button>
-      <button type="button" class="nav-item" data-kt-nav="hoa-don" onclick="PageKeToanDashboard.loadMain('hoa-don')"><i class="fas fa-file-invoice-dollar"></i><span>Hóa đơn / Đơn hàng</span></button>`;
+      <button type="button" class="nav-item" data-kt-nav="hoa-don" onclick="PageKeToanDashboard.loadMain('hoa-don')"><i class="fas fa-file-invoice-dollar"></i><span>Hóa đơn / Đơn hàng</span></button>
+      <button type="button" class="nav-item" data-kt-nav="quan-ly-kho" onclick="PageKeToanDashboard.loadMain('quan-ly-kho')"><i class="fas fa-warehouse"></i><span>Quản lý kho</span></button>`;
     window.RoleDashboardShell.mount('app-root', {
       brandTitle: 'PhòngKhám+',
       brandAccent: 'Kế toán',
@@ -38,7 +41,7 @@ const PageKeToanDashboard = {
       navHtml,
       mainHostId: 'ketoan-main',
       userName: hoTen || 'Nhân viên',
-      userRoleLabel: 'Kế toán — Duyệt chi & giá',
+      userRoleLabel: 'Kế toán — Duyệt chi, giá & kho',
       contentMaxWidth: '1180px',
     });
     await this.loadMain('tom-tat');
@@ -53,7 +56,64 @@ const PageKeToanDashboard = {
     if (tab === 'duyet-chi') return this._duyetChi(host);
     if (tab === 'gia') return this._capNhatGia(host);
     if (tab === 'hoa-don') return this._hoaDon(host);
+    if (tab === 'quan-ly-kho') return this._quanLyKho(host);
     return this._tomTat(host);
+  },
+
+  _khoSubTabs() {
+    return [
+      { id: 'canh-bao', label: 'Cảnh báo tồn', icon: 'fa-exclamation-triangle' },
+      { id: 'thuoc', label: 'Kho thuốc', icon: 'fa-pills' },
+      { id: 'vaccine', label: 'Kho vaccine', icon: 'fa-syringe' },
+      { id: 'phieu-nhap', label: 'Tạo phiếu nhập', icon: 'fa-file-import' },
+      { id: 'lich-su-nhap', label: 'Lịch sử nhập', icon: 'fa-history' },
+    ];
+  },
+
+  async _quanLyKho(host) {
+    const cur = this._khoSubTab || 'canh-bao';
+    host.innerHTML = `
+      <div class="kt-kho-shell">
+        <div class="card mb-3">
+          <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <strong><i class="fas fa-warehouse"></i> Quản lý kho</strong>
+            <span class="text-muted small">Tồn kho, nhập/xuất thuốc &amp; vaccine</span>
+          </div>
+          <div class="card-body py-2">
+            <div class="kt-kho-subnav">
+              ${this._khoSubTabs()
+                .map(
+                  (t) => `<button type="button" class="btn btn-sm ${cur === t.id ? 'btn-primary' : 'btn-outline-secondary'}"
+                    data-kt-kho-sub="${t.id}" onclick="PageKeToanDashboard._khoSubNav('${t.id}')">
+                    <i class="fas ${t.icon}"></i> ${t.label}
+                  </button>`
+                )
+                .join('')}
+            </div>
+          </div>
+        </div>
+        <div id="kt-kho-content"></div>
+      </div>`;
+    if (window.PageKhoDashboard) {
+      PageKhoDashboard._mainHostId = 'kt-kho-content';
+      await PageKhoDashboard.loadMain(cur, { skipNav: true });
+    } else {
+      document.getElementById('kt-kho-content').innerHTML =
+        '<p class="text-danger">Chưa tải module quản lý kho.</p>';
+    }
+  },
+
+  async _khoSubNav(subTab) {
+    this._khoSubTab = subTab;
+    document.querySelectorAll('[data-kt-kho-sub]').forEach((b) => {
+      const on = b.getAttribute('data-kt-kho-sub') === subTab;
+      b.classList.toggle('btn-primary', on);
+      b.classList.toggle('btn-outline-secondary', !on);
+    });
+    const content = document.getElementById('kt-kho-content');
+    if (!content || !window.PageKhoDashboard) return;
+    PageKhoDashboard._mainHostId = 'kt-kho-content';
+    await PageKhoDashboard.loadMain(subTab, { skipNav: true });
   },
 
   /** YYYY-MM-DD theo giờ máy (không dùng toISOString — lệch ngày so với VN). */

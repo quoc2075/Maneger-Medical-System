@@ -291,11 +291,30 @@ const PageLeTanDashboard = {
       <div class="card">
         <div class="card-header"><div class="card-title">Lấy số — BN chưa đặt trước</div></div>
         <div class="card-body">
-          <p class="text-muted small">Nhập <strong>mã bệnh nhân</strong> (đã đăng ký tại quầy). Bật <em>tự chọn bác sĩ</em> để hệ thống gán theo bảng trên; hoặc chọn tay một bác sĩ. Sau khi tạo, BN có STT và trạng thái đã check-in.</p>
+          <p class="text-muted small">Nhập <strong>mã bệnh nhân</strong> (đã đăng ký tại quầy), chọn <strong>Khám bệnh</strong> hoặc <strong>Tiêm chủng</strong> (tiêm cần chọn vaccine). Bật <em>tự chọn bác sĩ</em> để hệ thống gán theo bảng trên; hoặc chọn tay một bác sĩ. Sau khi tạo, BN có STT và trạng thái đã check-in.</p>
           <div class="grid-2">
             <div style="grid-column:1/-1">
               <label class="form-label">Mã bệnh nhân *</label>
               <input id="lt-wi-bn" class="form-control" placeholder="VD: BN20260411001"/>
+            </div>
+            <div style="grid-column:1/-1">
+              <label class="form-label">Loại tiếp nhận *</label>
+              <div class="d-flex flex-wrap gap-3 mb-1">
+                <label class="form-label mb-0" style="font-weight:normal;cursor:pointer">
+                  <input type="radio" name="lt-wi-loai" id="lt-wi-loai-kham" value="KHAM_BENH" checked onchange="PageLeTanDashboard._toggleLoaiWalkIn()"/>
+                  Khám bệnh
+                </label>
+                <label class="form-label mb-0" style="font-weight:normal;cursor:pointer">
+                  <input type="radio" name="lt-wi-loai" id="lt-wi-loai-tiem" value="TIEM_CHUNG" onchange="PageLeTanDashboard._toggleLoaiWalkIn()"/>
+                  Tiêm chủng
+                </label>
+              </div>
+            </div>
+            <div id="lt-wi-vaccine-wrap" style="grid-column:1/-1;display:none">
+              <label class="form-label">Vaccine sẽ tiêm *</label>
+              <select id="lt-wi-vaccine" class="form-control">
+                <option value="">Đang tải vaccine...</option>
+              </select>
             </div>
             <div style="grid-column:1/-1">
               <label class="form-label d-block">
@@ -319,27 +338,69 @@ const PageLeTanDashboard = {
           <button type="button" class="btn btn-primary mt-2" onclick="PageLeTanDashboard._submitLaySo()">Xác nhận &amp; lấy số</button>
         </div>
       </div>`;
+    await this._taiVaccineWalkIn();
+    this._toggleLoaiWalkIn();
+  },
+
+  _layLoaiWalkIn() {
+    return document.getElementById('lt-wi-loai-tiem')?.checked ? 'TIEM_CHUNG' : 'KHAM_BENH';
+  },
+
+  _toggleLoaiWalkIn() {
+    const wrap = document.getElementById('lt-wi-vaccine-wrap');
+    if (!wrap) return;
+    const isTiem = this._layLoaiWalkIn() === 'TIEM_CHUNG';
+    wrap.style.display = isTiem ? '' : 'none';
+  },
+
+  async _taiVaccineWalkIn() {
+    const sel = document.getElementById('lt-wi-vaccine');
+    if (!sel) return;
+    const res = await Http.layDanhSach('/thuoc/vaccine/?trang_thai=true&ordering=ten_vaccine&page_size=200');
+    const rows = res.data?.results || res.data || [];
+    const list = Array.isArray(rows) ? rows : [];
+    if (!res.ok || !list.length) {
+      sel.innerHTML = '<option value="">Không có vaccine khả dụng</option>';
+      return;
+    }
+    sel.innerHTML =
+      '<option value="">-- Chọn vaccine --</option>' +
+      list
+        .map((v) => {
+          const label = `${v.ma_vaccine || ''} — ${v.ten_vaccine || ''}`;
+          return `<option value="${this._esc(v.id)}">${this._esc(label)}</option>`;
+        })
+        .join('');
   },
 
   async _submitLaySo() {
     const maOrUuid = document.getElementById('lt-wi-bn')?.value?.trim();
     if (!maOrUuid) return Toast.loi('Nhập mã bệnh nhân', '', 'error');
+    const loaiLich = this._layLoaiWalkIn();
+    if (loaiLich === 'TIEM_CHUNG') {
+      const vc = document.getElementById('lt-wi-vaccine')?.value?.trim();
+      if (!vc) return Toast.loi('Chọn vaccine', 'Tiêm chủng bắt buộc chọn loại vaccine.', 'error');
+    }
     const auto = document.getElementById('lt-wi-auto')?.checked;
     const bs = document.getElementById('lt-wi-bs')?.value?.trim();
     const body = {
       tu_dong_chon_bac_si: !!auto,
-      loai_lich: 'KHAM_BENH',
+      loai_lich: loaiLich,
       ma_phong: document.getElementById('lt-wi-mp')?.value?.trim() || '',
       ten_phong: document.getElementById('lt-wi-tp')?.value?.trim() || '',
       ghi_chu: document.getElementById('lt-wi-gc')?.value?.trim() || '',
     };
+    if (loaiLich === 'TIEM_CHUNG') {
+      body.vaccine = document.getElementById('lt-wi-vaccine')?.value?.trim();
+    }
     if (this._laUuid(maOrUuid)) body.benh_nhan = maOrUuid;
     else body.ma_benh_nhan = maOrUuid;
     if (!auto && bs) body.bac_si = bs;
     const res = await Http.tao('/lich-hen/lich-hen/walk_in/', body);
     if (res.ok) {
       const d = res.data || {};
-      Toast.hien('Đã lấy số', `STT ${d.stt_trong_ngay ?? '—'} — ${d.ma_lich_hen || ''}`, 'success');
+      const loaiLabel = loaiLich === 'TIEM_CHUNG' ? 'Tiêm chủng' : 'Khám bệnh';
+      Toast.hien('Đã lấy số', `${loaiLabel} — STT ${d.stt_trong_ngay ?? '—'} — ${d.ma_lich_hen || ''}`, 'success');
       await this._tiepNhanTab('hang-cho');
     } else {
       const msg =
@@ -366,7 +427,7 @@ const PageLeTanDashboard = {
           <table class="table table-sm">
             <thead>
               <tr>
-                <th>STT</th><th>Giờ</th><th>Mã lịch</th><th>BN</th><th>BS</th><th>Phòng</th><th></th>
+                <th>STT</th><th>Giờ</th><th>Mã lịch</th><th>Loại</th><th>BN</th><th>BS</th><th>Phòng</th><th></th>
               </tr>
             </thead>
             <tbody>
@@ -379,6 +440,7 @@ const PageLeTanDashboard = {
                   <td><strong>${l.stt_trong_ngay != null ? this._esc(String(l.stt_trong_ngay)) : '—'}</strong></td>
                   <td>${this._esc(String(l.ngay_gio_hen || '').replace('T', ' ').slice(0, 16))}</td>
                   <td>${this._esc(l.ma_lich_hen || '')}</td>
+                  <td>${this._esc(l.loai_lich_display || l.loai_lich || '—')}</td>
                   <td>${this._esc(l.ten_benh_nhan || '')}<div class="text-muted small">${this._esc(l.ma_benh_nhan || '')}</div></td>
                   <td>${this._esc(l.ten_bac_si || '—')}</td>
                   <td>

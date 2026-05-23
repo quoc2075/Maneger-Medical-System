@@ -245,6 +245,11 @@ class WalkInLichHenSerializer(serializers.Serializer):
     bac_si = serializers.UUIDField(required=False, allow_null=True)
     tu_dong_chon_bac_si = serializers.BooleanField(default=True)
     loai_lich = serializers.ChoiceField(choices=LichHen.LOAI_LICH_CHOICES, default='KHAM_BENH')
+    vaccine = serializers.PrimaryKeyRelatedField(
+        queryset=Vaccine.objects.filter(trang_thai=True),
+        required=False,
+        allow_null=True,
+    )
     ma_phong = serializers.CharField(required=False, allow_blank=True, default='')
     ten_phong = serializers.CharField(required=False, allow_blank=True, default='')
     ghi_chu = serializers.CharField(required=False, allow_blank=True, default='')
@@ -266,6 +271,13 @@ class WalkInLichHenSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 'Cần mã bệnh nhân (ma_benh_nhan) hoặc UUID khóa bệnh nhân (benh_nhan)'
             )
+        loai = data.get('loai_lich') or 'KHAM_BENH'
+        if loai == 'TIEM_CHUNG' and not data.get('vaccine'):
+            raise serializers.ValidationError(
+                {'vaccine': 'Vui lòng chọn vaccine khi tiếp nhận tiêm chủng'}
+            )
+        if loai != 'TIEM_CHUNG':
+            data['vaccine'] = None
         return data
 
 # ==================== SERIALIZERS CHO LỊCH KHÁM ====================
