@@ -360,6 +360,80 @@
   border-color: var(--c-border);
 }
 
+/* Popup thông báo chung */
+.pk-noti-popup {
+  position: fixed;
+  top: 66px;
+  right: 16px;
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(480px, 70vh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-white);
+  border: 1px solid var(--c-border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-xl);
+  z-index: 2000;
+}
+.pk-noti-popup-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-bg-subtle);
+}
+.pk-noti-popup-list {
+  overflow: auto;
+  padding: 10px;
+}
+.pk-noti-item {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pk-noti-item.is-read {
+  background: var(--c-white);
+  border-color: var(--c-border);
+}
+.pk-noti-item:hover {
+  box-shadow: var(--shadow-sm);
+}
+.pk-noti-item-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--c-navy);
+  margin-bottom: 4px;
+}
+.pk-noti-item-loai {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  margin-bottom: 4px;
+}
+.pk-noti-item-body {
+  font-size: 13px;
+  color: var(--c-muted);
+  line-height: 1.45;
+}
+.pk-noti-item-time {
+  font-size: 11px;
+  color: var(--c-muted);
+  margin-top: 6px;
+}
+.pk-noti-empty {
+  text-align: center;
+  padding: 24px 12px;
+}
+
 .notification-bell .badge {
   position: absolute;
   top: 4px;

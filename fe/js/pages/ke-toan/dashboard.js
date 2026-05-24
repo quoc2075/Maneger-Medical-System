@@ -43,7 +43,9 @@ const PageKeToanDashboard = {
       userName: hoTen || 'Nhân viên',
       userRoleLabel: 'Kế toán — Duyệt chi, giá & kho',
       contentMaxWidth: '1180px',
+      headerActionsExtra: window.ThongBaoBell ? ThongBaoBell.htmlButton() : '',
     });
+    if (window.ThongBaoBell) ThongBaoBell.init({ badgeId: 'pk-noti-badge' });
     await this.loadMain('tom-tat');
   },
 

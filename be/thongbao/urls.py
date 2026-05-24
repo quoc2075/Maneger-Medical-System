@@ -1,12 +1,10 @@
-from django.urls import path
-from .views import (
-    BaoCaoDoanhThuView, BaoCaoLichHenView, 
-    BaoCaoTonKhoView, BaoCaoTongQuanView
-)
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 
-urlpatterns = [
-    path('doanh-thu/', BaoCaoDoanhThuView.as_view(), name='bao-cao-doanh-thu'),
-    path('lich-hen/', BaoCaoLichHenView.as_view(), name='bao-cao-lich-hen'),
-    path('ton-kho/', BaoCaoTonKhoView.as_view(), name='bao-cao-ton-kho'),
-    path('tong-quan/', BaoCaoTongQuanView.as_view(), name='bao-cao-tong-quan'),
-]
+from .notification_views import ThongBaoPhatHanhViewSet
+
+router = DefaultRouter()
+# Mount tại /api/thong-bao/phat-hanh/ (prefix trong phongkham.urls)
+router.register(r'', ThongBaoPhatHanhViewSet, basename='thong-bao-phat-hanh')
+
+urlpatterns = router.urls

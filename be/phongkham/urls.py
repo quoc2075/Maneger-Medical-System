@@ -23,13 +23,13 @@ urlpatterns = [
     path('api/auth/dang-nhap/', include('nguoidung.urls')),  # Giả sử có auth endpoints trong nguoidung.urls
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-    # API endpoints
+    # API endpoints — phat-hanh TRƯỚC api/ để không bị router thong-bao (nguoidung) nuốt path
+    path('api/thong-bao/phat-hanh/', include('thongbao.urls')),
     path('api/', include('nguoidung.urls')),
     path('api/thuoc/', include('thuoc.urls')),
     path('api/lich-hen/', include('lichhen.urls')),
     path('api/don-hang/', include('donhang.urls')),
     path('api/benh-an/', include('benhan.urls')),
-    path('api/thong-bao/', include('thongbao.urls')),
     path('api/tro-chuyen/', include('trochuyen.urls')),
     path('api/bao-cao/', include('baocao.urls')),
     

@@ -150,7 +150,9 @@ const PageLeTanDashboard = {
       userName: hoTen || 'Nhân viên',
       userRoleLabel: 'Lễ tân — Tiếp nhận',
       contentMaxWidth: '1320px',
+      headerActionsExtra: window.ThongBaoBell ? ThongBaoBell.htmlButton() : '',
     });
+    if (window.ThongBaoBell) ThongBaoBell.init({ badgeId: 'pk-noti-badge' });
     await this.chuyenTrang('tong-quan');
   },
 

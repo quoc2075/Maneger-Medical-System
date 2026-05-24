@@ -190,10 +190,16 @@ const AdminDashboard = {
             }
         });
         
-        // Notification bell
-        const notifBell = document.getElementById('notification-bell');
-        if (notifBell) {
-            notifBell.addEventListener('click', () => this.showNotifications());
+        // Chuông: hộp thư cá nhân (popup). Menu sidebar: quản lý & gửi thông báo.
+        if (window.ThongBaoBell) {
+            ThongBaoBell.init({ badgeId: 'notif-count' });
+            const notifBell = document.getElementById('notification-bell');
+            if (notifBell) {
+                notifBell.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    ThongBaoBell.togglePopup(e);
+                });
+            }
         }
         
         // User menu
@@ -1954,49 +1960,384 @@ const AdminDashboard = {
         });
     },
     
-    // Load notifications
+    // ─── Quản lý thông báo (phát hành) ───
+    _tbTodayISO() {
+        const d = new Date();
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    },
+
+    _buildTbHistoryQuery() {
+        const q = new URLSearchParams({ page_size: '100' });
+        const tu = document.getElementById('tb-ls-tu')?.value?.trim();
+        const den = document.getElementById('tb-ls-den')?.value?.trim();
+        const tim = document.getElementById('tb-ls-tim')?.value?.trim();
+        const loai = document.getElementById('tb-ls-loai')?.value?.trim();
+        const phamVi = document.getElementById('tb-ls-pham-vi')?.value?.trim();
+        if (tu) q.set('tu_ngay', tu);
+        if (den) q.set('den_ngay', den);
+        if (tim) q.set('tim_kiem', tim);
+        if (loai) q.set('loai_thong_bao', loai);
+        if (phamVi) q.set('pham_vi', phamVi);
+        return q.toString();
+    },
+
+    _tbResetHistoryFilter() {
+        const today = this._tbTodayISO();
+        const tu = document.getElementById('tb-ls-tu');
+        const den = document.getElementById('tb-ls-den');
+        const tim = document.getElementById('tb-ls-tim');
+        const loai = document.getElementById('tb-ls-loai');
+        const pv = document.getElementById('tb-ls-pham-vi');
+        if (tu) tu.value = today;
+        if (den) den.value = today;
+        if (tim) tim.value = '';
+        if (loai) loai.value = '';
+        if (pv) pv.value = '';
+        this.taiLichSuPhatHanh();
+    },
+
+    async taiLichSuPhatHanh(highlightId) {
+        const tbody = document.getElementById('tb-ph-history-body');
+        const countEl = document.getElementById('tb-ph-history-count');
+        if (!tbody) return;
+
+        tbody.innerHTML =
+            '<tr><td colspan="6" class="text-center text-muted py-3"><div class="spinner" style="width:22px;height:22px;margin:0 auto 8px"></div>Đang tải…</td></tr>';
+
+        const wrap = await this.safeApiGet(`/thong-bao/phat-hanh/?${this._buildTbHistoryQuery()}`);
+        if (!wrap.ok) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-danger text-center">Không tải được lịch sử (HTTP ${wrap.status || '?'})</td></tr>`;
+            if (countEl) countEl.textContent = '';
+            return;
+        }
+
+        const listRes = wrap.body;
+        const rows = listRes?.results || (Array.isArray(listRes) ? listRes : []);
+        const total = listRes?.count != null ? listRes.count : rows.length;
+
+        if (countEl) {
+            countEl.textContent = total ? `${total} bản ghi` : 'Không có bản ghi';
+        }
+
+        if (!rows.length) {
+            tbody.innerHTML =
+                '<tr><td colspan="6" class="text-muted text-center py-4">Không có thông báo trong khoảng đã chọn</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = rows
+            .map((n) => this._rowThongBaoPhatHanh(n, highlightId && String(n.id) === String(highlightId)))
+            .join('');
+
+        if (highlightId) {
+            const row = tbody.querySelector(`tr[data-tb-id="${highlightId}"]`);
+            if (row) {
+                row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                setTimeout(() => row.classList.remove('tb-ph-row-new'), 2500);
+            }
+        }
+    },
+
     async loadNotifications() {
         const content = document.getElementById('admin-content');
         content.innerHTML = '<div class="loading-container"><div class="spinner"></div><p>Đang tải quản lý thông báo...</p></div>';
-        
+
         try {
-            const notifications = await this.apiGet('/thong-bao/');
-            
+            const optWrap = await this.safeApiGet('/thong-bao/phat-hanh/tuy-chon/');
+            if (!optWrap.ok) {
+                const st = optWrap.status;
+                throw new Error(
+                    st === 404
+                        ? 'API phát hành thông báo chưa khớp URL — khởi động lại server Django sau khi cập nhật urls.py'
+                        : `HTTP ${st || 'lỗi'}`
+                );
+            }
+            this._tbPhatHanhOpts = optWrap.body || {};
+            const opts = this._tbPhatHanhOpts;
+            const today = this._tbTodayISO();
+            const loaiFilterOpts = (opts.loai_thong_bao || [])
+                .map((o) => `<option value="${this._escTb(o.value)}">${this._escTb(o.label)}</option>`)
+                .join('');
+            const phamViFilterOpts = (opts.pham_vi || [])
+                .map((o) => `<option value="${this._escTb(o.value)}">${this._escTb(o.label)}</option>`)
+                .join('');
+
             content.innerHTML = `
-                <div class="card">
-                    <div class="card-header">
-                        <div class="card-title">Quản lý thông báo</div>
-                        <button class="btn btn-outline btn-sm" onclick="AdminDashboard.markAllNotificationsRead()">
-                            Đánh dấu đã đọc tất cả
+                <div class="card mb-3">
+                    <div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px">
+                        <div>
+                            <div class="card-title"><i class="fas fa-bell"></i> Quản lý thông báo</div>
+                            <p class="text-muted small mb-0">Tạo và gửi thông báo tới toàn hệ thống, theo vai trò/chức vụ hoặc một người dùng.</p>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-sm" onclick="AdminDashboard.showCreateNotificationModal()">
+                            <i class="fas fa-paper-plane"></i> Tạo &amp; gửi thông báo
                         </button>
                     </div>
+                </div>
+                <div class="card">
+                    <div class="card-header" style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px">
+                        <div class="card-title mb-0">Lịch sử phát hành</div>
+                        <span id="tb-ph-history-count" class="text-muted small"></span>
+                    </div>
                     <div class="card-body">
-                        <div class="notifications-list">
-                            ${notifications?.results?.map(n => `
-                                <div class="notification-item ${n.da_xem ? 'read' : 'unread'}" 
-                                     onclick="AdminDashboard.viewNotification('${n.id}')">
-                                    <div class="notification-icon">
-                                        <i class="fas ${this.getNotificationIcon(n.loai)}"></i>
-                                    </div>
-                                    <div class="notification-content">
-                                        <div class="notification-title">${n.tieu_de}</div>
-                                        <div class="notification-message">${n.noi_dung}</div>
-                                        <div class="notification-time">${this.formatDateTime(n.created_at)}</div>
-                                    </div>
-                                    ${!n.da_xem ? '<div class="notification-unread-dot"></div>' : ''}
-                                </div>
-                            `).join('') || '<p class="text-muted text-center">Không có thông báo</p>'}
+                        <div class="tb-ph-filter-bar" style="display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin-bottom:16px;padding:12px;background:var(--c-bg-subtle, #f8fafc);border-radius:8px;border:1px solid var(--c-border, #e2e8f0)">
+                            <div>
+                                <label class="form-label small mb-1">Từ ngày</label>
+                                <input type="date" id="tb-ls-tu" class="form-control form-control-sm" value="${today}"/>
+                            </div>
+                            <div>
+                                <label class="form-label small mb-1">Đến ngày</label>
+                                <input type="date" id="tb-ls-den" class="form-control form-control-sm" value="${today}"/>
+                            </div>
+                            <div style="min-width:160px">
+                                <label class="form-label small mb-1">Tìm kiếm</label>
+                                <input type="text" id="tb-ls-tim" class="form-control form-control-sm" placeholder="Tiêu đề, nội dung…"
+                                    onkeydown="if(event.key==='Enter')AdminDashboard.taiLichSuPhatHanh()"/>
+                            </div>
+                            <div>
+                                <label class="form-label small mb-1">Loại</label>
+                                <select id="tb-ls-loai" class="form-control form-control-sm">
+                                    <option value="">Tất cả</option>${loaiFilterOpts}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label small mb-1">Phạm vi</label>
+                                <select id="tb-ls-pham-vi" class="form-control form-control-sm">
+                                    <option value="">Tất cả</option>${phamViFilterOpts}
+                                </select>
+                            </div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                                <button type="button" class="btn btn-primary btn-sm" onclick="AdminDashboard.taiLichSuPhatHanh()">
+                                    <i class="fas fa-search"></i> Lọc
+                                </button>
+                                <button type="button" class="btn btn-outline btn-sm" onclick="AdminDashboard._tbResetHistoryFilter()">Hôm nay</button>
+                            </div>
+                        </div>
+                        <div style="overflow:auto">
+                            <table class="table table-sm admin-tb-table">
+                                <thead>
+                                    <tr>
+                                        <th>Tiêu đề</th>
+                                        <th>Loại</th>
+                                        <th>Phạm vi</th>
+                                        <th>Người gửi</th>
+                                        <th>Thời gian gửi</th>
+                                        <th class="text-center">Số BN nhận</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tb-ph-history-body"></tbody>
+                            </table>
                         </div>
                     </div>
-                </div>
-            `;
-            
-            // Add styles for notifications
-            this.addNotificationStyles();
+                </div>`;
+
+            await this.taiLichSuPhatHanh();
         } catch (error) {
             console.error('Error loading notifications:', error);
-            content.innerHTML = '<div class="card"><div class="card-body"><p class="text-muted">Lỗi tải dữ liệu</p></div></div>';
+            content.innerHTML = '<div class="card"><div class="card-body"><p class="text-danger">Không tải được dữ liệu thông báo. Chạy migrate: python manage.py migrate thongbao</p></div></div>';
         }
+    },
+
+    _escTb(s) {
+        if (s == null) return '';
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
+
+    _rowThongBaoPhatHanh(n, isNew) {
+        const phamVi = this._moTaPhamViTb(n);
+        const rowCls = isNew ? ' class="tb-ph-row-new"' : '';
+        return `<tr data-tb-id="${this._escTb(n.id)}"${rowCls}>
+            <td><strong>${this._escTb(n.tieu_de)}</strong><div class="text-muted small text-truncate" style="max-width:280px">${this._escTb((n.noi_dung || '').slice(0, 120))}${(n.noi_dung || '').length > 120 ? '…' : ''}</div></td>
+            <td><span class="badge badge-info">${this._escTb(n.loai_thong_bao_display || n.loai_thong_bao)}</span></td>
+            <td>${phamVi}</td>
+            <td>${this._escTb(n.ten_nguoi_gui || '—')}</td>
+            <td>${this._escTb(this.formatDateTime(n.thoi_gian_gui))}</td>
+            <td class="text-center"><strong>${n.so_nguoi_nhan ?? 0}</strong></td>
+        </tr>`;
+    },
+
+    _moTaPhamViTb(n) {
+        if (n.pham_vi === 'TAT_CA') return '<span class="badge badge-mint">Toàn hệ thống</span>';
+        if (n.pham_vi === 'VAI_TRO') return `<span class="badge badge-info">Vai trò: ${this._escTb(n.vai_tro_display || n.vai_tro)}</span>`;
+        if (n.pham_vi === 'CHUC_VU') return `<span class="badge badge-warning">Chức vụ: ${this._escTb(n.chuc_vu_display || n.chuc_vu)}</span>`;
+        if (n.pham_vi === 'NGUOI_DUNG') return `<span class="badge badge-muted">1 người: ${this._escTb(n.ten_nguoi_nhan || '')}</span>`;
+        return this._escTb(n.pham_vi_display || n.pham_vi);
+    },
+
+    showCreateNotificationModal() {
+        const opts = this._tbPhatHanhOpts || {};
+        const loaiOpts = (opts.loai_thong_bao || []).map((o) =>
+            `<option value="${this._escTb(o.value)}">${this._escTb(o.label)}</option>`
+        ).join('');
+        const phamViOpts = (opts.pham_vi || []).map((o) =>
+            `<option value="${this._escTb(o.value)}">${this._escTb(o.label)}</option>`
+        ).join('');
+        const vaiTroOpts = (opts.vai_tro || []).map((o) =>
+            `<option value="${this._escTb(o.value)}">${this._escTb(o.label)}</option>`
+        ).join('');
+        const chucVuOpts = (opts.chuc_vu || []).map((o) =>
+            `<option value="${this._escTb(o.value)}">${this._escTb(o.label)}</option>`
+        ).join('');
+
+        this.showModal('Tạo &amp; gửi thông báo', `
+            <div class="grid-2">
+                <div style="grid-column:1/-1">
+                    <label class="form-label">Tiêu đề *</label>
+                    <input type="text" id="tb-ph-tieu-de" class="form-control" maxlength="255" placeholder="VD: Bảo trì hệ thống tối nay"/>
+                </div>
+                <div style="grid-column:1/-1">
+                    <label class="form-label">Nội dung *</label>
+                    <textarea id="tb-ph-noi-dung" class="form-control" rows="4" placeholder="Nội dung chi tiết gửi tới người nhận..."></textarea>
+                </div>
+                <div>
+                    <label class="form-label">Loại thông báo *</label>
+                    <select id="tb-ph-loai" class="form-control">${loaiOpts}</select>
+                </div>
+                <div>
+                    <label class="form-label">Phạm vi gửi *</label>
+                    <select id="tb-ph-pham-vi" class="form-control" onchange="AdminDashboard._tbDoiPhamVi()">${phamViOpts}</select>
+                </div>
+                <div id="tb-ph-wrap-vai-tro" class="d-none">
+                    <label class="form-label">Vai trò *</label>
+                    <select id="tb-ph-vai-tro" class="form-control" onchange="AdminDashboard._tbCapNhatDemNguoiNhan()">${vaiTroOpts}</select>
+                </div>
+                <div id="tb-ph-wrap-chuc-vu" class="d-none">
+                    <label class="form-label">Chức vụ nhân viên *</label>
+                    <select id="tb-ph-chuc-vu" class="form-control" onchange="AdminDashboard._tbCapNhatDemNguoiNhan()">${chucVuOpts}</select>
+                </div>
+                <div id="tb-ph-wrap-nguoi" class="d-none" style="grid-column:1/-1">
+                    <label class="form-label">Người nhận *</label>
+                    <input type="text" id="tb-ph-nguoi-q" class="form-control mb-1" placeholder="Tìm họ tên, email, tên đăng nhập..."
+                        oninput="AdminDashboard._tbTimNguoiDung(this.value)"/>
+                    <select id="tb-ph-nguoi-id" class="form-control" size="4" onchange="AdminDashboard._tbCapNhatDemNguoiNhan()"><option value="">— Tìm và chọn —</option></select>
+                </div>
+                <div style="grid-column:1/-1">
+                    <p class="text-muted small mb-0" id="tb-ph-dem">Ước tính: — người nhận</p>
+                </div>
+            </div>
+        `, () => this.submitCreateNotification());
+        const btn = document.getElementById('modal-confirm-btn');
+        if (btn) btn.textContent = 'Gửi thông báo';
+        this._tbDoiPhamVi();
+    },
+
+    _tbDoiPhamVi() {
+        const pv = document.getElementById('tb-ph-pham-vi')?.value || 'TAT_CA';
+        const wVt = document.getElementById('tb-ph-wrap-vai-tro');
+        const wCv = document.getElementById('tb-ph-wrap-chuc-vu');
+        const wNd = document.getElementById('tb-ph-wrap-nguoi');
+        if (wVt) wVt.classList.toggle('d-none', pv !== 'VAI_TRO');
+        if (wCv) wCv.classList.toggle('d-none', pv !== 'CHUC_VU');
+        if (wNd) wNd.classList.toggle('d-none', pv !== 'NGUOI_DUNG');
+        this._tbCapNhatDemNguoiNhan();
+    },
+
+    async _tbCapNhatDemNguoiNhan() {
+        const el = document.getElementById('tb-ph-dem');
+        if (!el) return;
+        const pv = document.getElementById('tb-ph-pham-vi')?.value || '';
+        const q = new URLSearchParams({ pham_vi: pv });
+        if (pv === 'VAI_TRO') q.set('vai_tro', document.getElementById('tb-ph-vai-tro')?.value || '');
+        if (pv === 'CHUC_VU') q.set('chuc_vu', document.getElementById('tb-ph-chuc-vu')?.value || '');
+        if (pv === 'NGUOI_DUNG') {
+            const nid = document.getElementById('tb-ph-nguoi-id')?.value;
+            if (nid) q.set('nguoi_nhan_id', nid);
+            else { el.textContent = 'Chọn người nhận để xem số lượng'; return; }
+        }
+        const res = await this.apiGet(`/thong-bao/phat-hanh/dem-nguoi-nhan/?${q}`);
+        const so = res?.so_nguoi_nhan ?? 0;
+        el.textContent = `Ước tính: ${so} người sẽ nhận thông báo`;
+    },
+
+    _tbTimNguoiDungTimer: null,
+    _tbTimNguoiDung(q) {
+        clearTimeout(this._tbTimNguoiDungTimer);
+        this._tbTimNguoiDungTimer = setTimeout(async () => {
+            const sel = document.getElementById('tb-ph-nguoi-id');
+            if (!sel) return;
+            const term = (q || '').trim();
+            if (term.length < 2) {
+                sel.innerHTML = '<option value="">Nhập ít nhất 2 ký tự...</option>';
+                return;
+            }
+            const res = await this.apiGet(`/users/?search=${encodeURIComponent(term)}&page_size=20`);
+            const list = res?.results || (Array.isArray(res) ? res : []);
+            sel.innerHTML = list.length
+                ? list.map((u) => `<option value="${u.id}">${this._escTb(u.ho_ten)} — ${this._escTb(u.ten_dang_nhap)} (${this._escTb(u.vai_tro)})</option>`).join('')
+                : '<option value="">Không tìm thấy</option>';
+        }, 350);
+    },
+
+    async submitCreateNotification() {
+        const tieuDe = document.getElementById('tb-ph-tieu-de')?.value?.trim();
+        const noiDung = document.getElementById('tb-ph-noi-dung')?.value?.trim();
+        const loai = document.getElementById('tb-ph-loai')?.value;
+        const phamVi = document.getElementById('tb-ph-pham-vi')?.value;
+        if (!tieuDe || !noiDung) {
+            Toast.warning('Thiếu thông tin', 'Nhập tiêu đề và nội dung');
+            return;
+        }
+        const body = {
+            tieu_de: tieuDe,
+            noi_dung: noiDung,
+            loai_thong_bao: loai,
+            pham_vi: phamVi,
+        };
+        if (phamVi === 'VAI_TRO') body.vai_tro = document.getElementById('tb-ph-vai-tro')?.value;
+        if (phamVi === 'CHUC_VU') body.chuc_vu = document.getElementById('tb-ph-chuc-vu')?.value;
+        if (phamVi === 'NGUOI_DUNG') {
+            const nid = document.getElementById('tb-ph-nguoi-id')?.value;
+            if (!nid) {
+                Toast.warning('Chọn người nhận', '');
+                return;
+            }
+            body.nguoi_nhan_id = nid;
+        }
+        const ok = window.Confirm
+            ? await Confirm.hien({
+                tieu: 'Gửi thông báo?',
+                noi: document.getElementById('tb-ph-dem')?.textContent || 'Xác nhận gửi tới người nhận đã chọn.',
+                ok: 'Gửi ngay',
+                loai: 'default',
+                icon: 'fa-paper-plane',
+            })
+            : window.confirm('Gửi thông báo?');
+        if (!ok) return;
+
+        const result = await this.apiPost('/thong-bao/phat-hanh/', body);
+        if (result && !result.error) {
+            const so = result.so_nguoi_nhan ?? result.so_nguoi_nhan_thuc_te ?? 0;
+            if (result.id || result.tieu_de || so > 0) {
+                this.closeModal();
+                Toast.success('Đã gửi', `Thông báo đã gửi tới ${so} người`);
+                const today = this._tbTodayISO();
+                const tuEl = document.getElementById('tb-ls-tu');
+                const denEl = document.getElementById('tb-ls-den');
+                if (tuEl) tuEl.value = today;
+                if (denEl) denEl.value = today;
+                if (document.getElementById('tb-ph-history-body')) {
+                    await this.taiLichSuPhatHanh(result.id);
+                } else {
+                    await this.loadNotifications();
+                }
+                return;
+            }
+        }
+        const msg = result?.error
+            || (typeof result === 'object' ? this._formatApiErrorBody(result) : null)
+            || 'Gửi thất bại — kiểm tra quyền Admin và đã migrate thongbao';
+        Toast.error('Không gửi được', msg);
+    },
+
+    _formatApiErrorBody(body) {
+        if (!body || typeof body !== 'object') return '';
+        if (typeof body.detail === 'string') return body.detail;
+        if (Array.isArray(body.detail)) return body.detail.join('; ');
+        const parts = this._collectApiErrors(body);
+        return parts.length ? parts.join('; ') : JSON.stringify(body);
     },
     
     addNotificationStyles() {
@@ -3822,6 +4163,10 @@ const AdminDashboard = {
     },
     
     showNotifications() {
+        if (window.ThongBaoBell) {
+            ThongBaoBell.togglePopup();
+            return;
+        }
         this.switchPage('notifications');
     },
     

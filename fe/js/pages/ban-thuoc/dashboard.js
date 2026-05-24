@@ -41,7 +41,9 @@ const PageBanThuocDashboard = {
       userName: hoTen || 'Nhân viên',
       userRoleLabel: 'Bán thuốc — Quầy',
       contentMaxWidth: '1100px',
+      headerActionsExtra: window.ThongBaoBell ? ThongBaoBell.htmlButton() : '',
     });
+    if (window.ThongBaoBell) ThongBaoBell.init({ badgeId: 'pk-noti-badge' });
     await this.chuyenTrang('theo-toa');
   },
 

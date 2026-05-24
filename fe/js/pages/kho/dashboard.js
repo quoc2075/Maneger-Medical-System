@@ -69,7 +69,9 @@ const PageKhoDashboard = {
       userName: hoTen || 'Nhân viên',
       userRoleLabel: 'Quản lý kho thuốc & vaccine',
       contentMaxWidth: '1180px',
+      headerActionsExtra: window.ThongBaoBell ? ThongBaoBell.htmlButton() : '',
     });
+    if (window.ThongBaoBell) ThongBaoBell.init({ badgeId: 'pk-noti-badge' });
     await this.loadMain('canh-bao');
   },
 

@@ -99,3 +99,77 @@ class ThongBao(models.Model):
             nguoi_nhan=nguoi_nhan,
             da_doc_luc__isnull=True,
         ).count()
+
+
+# ---------------------------------------------------------------------------
+# ThongBaoPhatHanh — admin gửi thông báo theo phạm vi
+# ---------------------------------------------------------------------------
+class ThongBaoPhatHanh(models.Model):
+    """Bản ghi phát hành thông báo (lưu metadata + phạm vi gửi)."""
+
+    class PhamVi(models.TextChoices):
+        TAT_CA = 'TAT_CA', 'Toàn bộ người dùng'
+        VAI_TRO = 'VAI_TRO', 'Theo vai trò'
+        CHUC_VU = 'CHUC_VU', 'Theo chức vụ nhân viên'
+        NGUOI_DUNG = 'NGUOI_DUNG', 'Một người dùng cụ thể'
+
+    class LoaiThongBao(models.TextChoices):
+        HE_THONG = 'HE_THONG', 'Hệ thống'
+        LICH_HEN = 'LICH_HEN', 'Lịch hẹn'
+        DON_THUOC = 'DON_THUOC', 'Đơn thuốc'
+        TIEM_CHUNG = 'TIEM_CHUNG', 'Tiêm chủng'
+        THANH_TOAN = 'THANH_TOAN', 'Thanh toán'
+        TAI_KHOAN = 'TAI_KHOAN', 'Tài khoản'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    tieu_de = models.CharField(max_length=255)
+    noi_dung = models.TextField()
+    loai_thong_bao = models.CharField(
+        max_length=20,
+        choices=LoaiThongBao.choices,
+        default=LoaiThongBao.HE_THONG,
+    )
+    pham_vi = models.CharField(max_length=20, choices=PhamVi.choices)
+
+    vai_tro = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text='BENH_NHAN | BAC_SI | NHAN_VIEN | ADMIN khi pham_vi=VAI_TRO',
+    )
+    chuc_vu = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text='LE_TAN | KHO | ... khi pham_vi=CHUC_VU',
+    )
+    nguoi_nhan = models.ForeignKey(
+        'nguoidung.NguoiDung',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='thong_bao_phat_hanh_chi_dinh',
+        db_constraint=False,
+        help_text='Khi pham_vi=NGUOI_DUNG',
+    )
+    nguoi_gui = models.ForeignKey(
+        'nguoidung.NguoiDung',
+        on_delete=models.PROTECT,
+        related_name='thong_bao_da_gui',
+        db_constraint=False,
+    )
+    thoi_gian_gui = models.DateTimeField(help_text='Thời điểm gửi thông báo')
+    so_nguoi_nhan = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'thong_bao_phat_hanh'
+        verbose_name = 'Phát hành thông báo'
+        verbose_name_plural = 'Phát hành thông báo'
+        ordering = ['-thoi_gian_gui', '-created_at']
+        indexes = [
+            models.Index(fields=['-thoi_gian_gui']),
+            models.Index(fields=['pham_vi']),
+            models.Index(fields=['loai_thong_bao']),
+        ]
+
+    def __str__(self):
+        return f'{self.tieu_de} ({self.get_pham_vi_display()})'

@@ -1799,6 +1799,12 @@ textarea.form-control { resize: vertical; min-height: 90px; }
   cursor: default;
   opacity: 0.45;
 }
+.bs-llv-cal-day--past {
+  opacity: 0.5;
+}
+.bs-llv-cal-day--past:hover {
+  opacity: 0.65;
+}
 .bs-llv-cal-day--today {
   border-color: var(--c-accent);
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);

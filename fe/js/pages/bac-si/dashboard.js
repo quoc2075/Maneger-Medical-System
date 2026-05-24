@@ -231,7 +231,9 @@ const PageBacSiDashboard = {
       userRoleLabel: vaiTro ? String(vaiTro).replace(/_/g, ' ') : 'Bác sĩ',
       contentMaxWidth: '1280px',
       aboveMainContent: strip,
+      headerActionsExtra: window.ThongBaoBell ? ThongBaoBell.htmlButton() : '',
     });
+    if (window.ThongBaoBell) ThongBaoBell.init({ badgeId: 'pk-noti-badge' });
     await this.chuyenTrang('tong-quan');
   },
 
@@ -1742,9 +1744,42 @@ const PageBacSiDashboard = {
     return 'bs-llv-badge';
   },
 
+  _homNayYMD() {
+    return (window.UIEnhance && UIEnhance.ngayHomNayYMD)
+      ? UIEnhance.ngayHomNayYMD()
+      : this._formatDateYMD(new Date());
+  },
+
+  _laNgayQuaKhu(ymd) {
+    if (window.UIEnhance && UIEnhance.laNgayQuaKhu) return UIEnhance.laNgayQuaKhu(ymd, this._homNayYMD());
+    return ymd && ymd < this._homNayYMD();
+  },
+
+  _apDungMinNgayLlv() {
+    const today = this._homNayYMD();
+    const el = document.getElementById('bs-llv-ngay');
+    if (!el) return;
+    el.min = today;
+    if (el.value && el.value < today) el.value = today;
+    if (!el.dataset.minBound) {
+      el.dataset.minBound = '1';
+      el.addEventListener('change', () => this._kiemTraNgayLlvInput());
+    }
+  },
+
+  _kiemTraNgayLlvInput() {
+    const el = document.getElementById('bs-llv-ngay');
+    if (!el || !el.value) return;
+    const today = this._homNayYMD();
+    if (el.value < today) {
+      el.value = today;
+      Toast.loi('Ngày không hợp lệ', 'Không chọn ngày trong quá khứ', 'error');
+    }
+  },
+
   _chonNgayLlvPreset(offsetDays) {
     const d = new Date();
-    d.setDate(d.getDate() + (offsetDays || 0));
+    d.setDate(d.getDate() + Math.max(0, offsetDays || 0));
     const el = document.getElementById('bs-llv-ngay');
     if (el) el.value = this._formatDateYMD(d);
     const ymd = this._formatDateYMD(d);
@@ -1812,16 +1847,19 @@ const PageBacSiDashboard = {
   _llvChonNgayTuLich(ymd) {
     if (!ymd) return;
     this._llvCalSelected = ymd;
+    const isPast = this._laNgayQuaKhu(ymd);
     const el = document.getElementById('bs-llv-ngay');
-    if (el) el.value = ymd;
+    if (el && !isPast) el.value = ymd;
     const p = ymd.split('-');
     if (p.length === 3) {
       this._llvCalYear = parseInt(p[0], 10);
       this._llvCalMonth = parseInt(p[1], 10) - 1;
     }
     this._renderLlvCalendar();
-    const form = document.querySelector('.bs-llv-form-card');
-    if (form) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!isPast) {
+      const form = document.querySelector('.bs-llv-form-card');
+      if (form) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   },
 
   _llvSetView(mode) {
@@ -1850,7 +1888,7 @@ const PageBacSiDashboard = {
 
     const y = this._llvCalYear;
     const m = this._llvCalMonth;
-    const today = this._formatDateYMD(new Date());
+    const today = this._homNayYMD();
     const map = this._llvCalMapFromList(this._llvScheduleList || []);
 
     if (titleEl) {
@@ -1889,6 +1927,7 @@ const PageBacSiDashboard = {
         const info = map[c.ymd];
         const has = info && info.cas.length;
         const isToday = c.ymd === today;
+        const isPast = c.ymd < today;
         const isSel = c.ymd === this._llvCalSelected;
         const dots = has
           ? order
@@ -1899,7 +1938,7 @@ const PageBacSiDashboard = {
               )
               .join('')
           : '';
-        return `<button type="button" class="bs-llv-cal-day${has ? ' bs-llv-cal-day--has' : ''}${isToday ? ' bs-llv-cal-day--today' : ''}${isSel ? ' bs-llv-cal-day--selected' : ''}"
+        return `<button type="button" class="bs-llv-cal-day${has ? ' bs-llv-cal-day--has' : ''}${isToday ? ' bs-llv-cal-day--today' : ''}${isPast ? ' bs-llv-cal-day--past' : ''}${isSel ? ' bs-llv-cal-day--selected' : ''}"
           onclick="PageBacSiDashboard._llvChonNgayTuLich('${this._esc(c.ymd)}')" aria-label="Ngày ${c.day}">
           <span class="bs-llv-cal-day-num">${c.day}</span>
           <div class="bs-llv-cal-day-dots">${dots}</div>
@@ -1910,12 +1949,15 @@ const PageBacSiDashboard = {
     if (detailEl) {
       const sel = this._llvCalSelected;
       const info = map[sel];
+      const isPastSel = sel && sel < today;
       if (!sel) {
         detailEl.innerHTML = '';
         detailEl.style.display = 'none';
       } else if (!info || !info.rows.length) {
         detailEl.style.display = '';
-        detailEl.innerHTML = `
+        detailEl.innerHTML = isPastSel
+          ? `<div><strong>${this._esc(this._formatNgayVN(sel))}</strong> — ngày đã qua, không đăng ký ca mới.</div>`
+          : `
           <div><strong>${this._esc(this._formatNgayVN(sel))}</strong> — chưa đăng ký ca.</div>
           <div class="bs-llv-cal-detail-actions">
             <button type="button" class="btn btn-sm btn-primary" onclick="PageBacSiDashboard._llvChonNgayTuLich('${this._esc(sel)}')">Đăng ký ca ngày này</button>
@@ -1928,9 +1970,10 @@ const PageBacSiDashboard = {
             ${info.rows.map((r) => `<span class="${this._llvBadgeClass(r.ca_lam)}">${this._esc(r.ca_lam_display || r.ca_lam)}</span>`).join('')}
           </div>
           ${info.rows.map((r) => r.ghi_chu ? `<div class="text-muted small">${this._esc(r.ghi_chu)}</div>` : '').join('')}
+          ${isPastSel ? '<p class="text-muted small mb-0 mt-2">Ngày đã qua — chỉ xem, không thêm ca mới.</p>' : `
           <div class="bs-llv-cal-detail-actions">
             <button type="button" class="btn btn-sm btn-outline" onclick="PageBacSiDashboard._llvChonNgayTuLich('${this._esc(sel)}')">Sửa / thêm ca</button>
-          </div>`;
+          </div>`}`;
       }
     }
   },
@@ -1941,7 +1984,7 @@ const PageBacSiDashboard = {
 
   async _lichLamViec(host) {
     this._llvCalInitState();
-    const today = this._formatDateYMD(new Date());
+    const today = this._homNayYMD();
     UI.render(host, `
       <div class="bs-llv-page">
         <div class="bs-llv-hero">
@@ -1955,7 +1998,7 @@ const PageBacSiDashboard = {
             <div class="mb-4">
               <span class="bs-llv-field-label">Ngày làm</span>
               <div class="bs-llv-date-row">
-                <input type="date" id="bs-llv-ngay" class="form-control" value="${this._esc(today)}"/>
+                <input type="date" id="bs-llv-ngay" class="form-control" value="${this._esc(today)}" min="${this._esc(today)}"/>
                 <div class="bs-llv-date-presets">
                   <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._chonNgayLlvPreset(0)">Hôm nay</button>
                   <button type="button" class="btn btn-outline btn-sm" onclick="PageBacSiDashboard._chonNgayLlvPreset(1)">Ngày mai</button>
@@ -2046,6 +2089,7 @@ const PageBacSiDashboard = {
           </div>
         </div>
       </div>`);
+    this._apDungMinNgayLlv();
     await this._taiDanhSachCaLam();
   },
 
@@ -2108,12 +2152,16 @@ const PageBacSiDashboard = {
   },
 
   async _dangKyCaLam() {
+    this._kiemTraNgayLlvInput();
     const ngay = document.getElementById('bs-llv-ngay')?.value;
     const ca = [];
     if (document.getElementById('bs-llv-sang')?.checked) ca.push('SANG');
     if (document.getElementById('bs-llv-chieu')?.checked) ca.push('CHIEU');
     if (document.getElementById('bs-llv-toi')?.checked) ca.push('TOI');
     if (!ngay || !ca.length) return Toast.loi('Chọn ngày và ít nhất một ca', '', 'error');
+    if (this._laNgayQuaKhu(ngay)) {
+      return Toast.loi('Ngày không hợp lệ', 'Không đăng ký ca cho ngày trong quá khứ', 'error');
+    }
     const ghiChu = (document.getElementById('bs-llv-ghi-chu')?.value || '').trim();
     const res = await Http.tao('/doctor-schedule/dang_ky_nhieu/', {
       ngay_lam: ngay,

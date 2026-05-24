@@ -105,6 +105,28 @@
     init();
   }
 
+  /** YYYY-MM-DD theo giờ máy người dùng */
+  function ngayHomNayYMD(d) {
+    const dt = d instanceof Date ? d : new Date();
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const day = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  /** Giá trị min cho input type="datetime-local" (không chọn quá khứ) */
+  function datetimeLocalMinNow() {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  }
+
+  function laNgayQuaKhu(ymd, homNay) {
+    if (!ymd) return false;
+    const today = homNay || ngayHomNayYMD();
+    return String(ymd).slice(0, 10) < today;
+  }
+
   global.UIEnhance = {
     getTheme,
     setTheme,
@@ -115,6 +137,9 @@
     closeMobileSidebar,
     statGridSkeleton,
     tableSkeleton,
+    ngayHomNayYMD,
+    datetimeLocalMinNow,
+    laNgayQuaKhu,
     init,
   };
 })(window);

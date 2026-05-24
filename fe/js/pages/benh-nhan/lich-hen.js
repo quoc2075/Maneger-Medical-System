@@ -58,12 +58,14 @@ const PageLichHenBenhNhan = {
     document.getElementById('bn-lh-email').value = me?.data?.email || '';
 
     this._setDatetimeMinNow();
+    this._ganKiemTraNgayGioHen();
     await this._taiDanhSachVaccine();
     this._ganSuKienLoaiLich();
     this._toggleVaccineInput();
   },
 
   async datLich() {
+    this._setDatetimeMinNow();
     const loaiLich = document.getElementById('bn-lh-loai')?.value;
     const rawDate = document.getElementById('bn-lh-ngay-gio')?.value || '';
     if (!rawDate) return Toast.loi('Thiếu thông tin', 'Vui lòng chọn giờ khám');
@@ -162,10 +164,35 @@ const PageLichHenBenhNhan = {
   _setDatetimeMinNow() {
     const el = document.getElementById('bn-lh-ngay-gio');
     if (!el) return;
+    el.min = (window.UIEnhance && UIEnhance.datetimeLocalMinNow)
+      ? UIEnhance.datetimeLocalMinNow()
+      : this._datetimeLocalMinFallback();
+    if (el.value && new Date(el.value).getTime() < Date.now()) {
+      el.value = '';
+    }
+  },
+
+  _datetimeLocalMinFallback() {
     const now = new Date();
     now.setSeconds(0, 0);
-    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-    el.min = local;
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  },
+
+  _ganKiemTraNgayGioHen() {
+    const el = document.getElementById('bn-lh-ngay-gio');
+    if (!el || el.dataset.minBound) return;
+    el.dataset.minBound = '1';
+    el.addEventListener('change', () => this._kiemTraNgayGioHen());
+    el.addEventListener('focus', () => this._setDatetimeMinNow());
+  },
+
+  _kiemTraNgayGioHen() {
+    const el = document.getElementById('bn-lh-ngay-gio');
+    if (!el || !el.value) return;
+    if (new Date(el.value).getTime() < Date.now()) {
+      this._setDatetimeMinNow();
+      Toast.loi('Thời gian không hợp lệ', 'Không thể chọn thời gian trong quá khứ');
+    }
   },
 
   _extractError(res) {

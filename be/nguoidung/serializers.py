@@ -479,6 +479,11 @@ class DoctorScheduleCreateSerializer(serializers.ModelSerializer):
         model = DoctorSchedule
         fields = ['ngay_lam', 'ca_lam', 'ghi_chu']
 
+    def validate_ngay_lam(self, value):
+        if value < timezone.localdate():
+            raise serializers.ValidationError('Không thể đăng ký ca cho ngày trong quá khứ')
+        return value
+
     def validate_ca_lam(self, value):
         valid = {c[0] for c in DoctorSchedule.CA_LAM_CHOICES}
         if value not in valid:

@@ -138,6 +138,16 @@
   gap: var(--space-3);
 }
 
+/* Lịch sử phát hành thông báo — hàng vừa gửi */
+tr.tb-ph-row-new td {
+  background: #ecfdf5 !important;
+  animation: tb-ph-row-flash 2s ease-out;
+}
+@keyframes tb-ph-row-flash {
+  0% { background: #a7f3d0 !important; }
+  100% { background: #ecfdf5 !important; }
+}
+
 /* Notifications list */
 .notifications-list {
   display: flex;
