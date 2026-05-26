@@ -231,3 +231,22 @@ tr.tb-ph-row-new td {
 @media (max-width: 768px) {
   .stats-grid { grid-template-columns: 1fr; }
 }
+
+/* Tìm kiếm cục bộ từng bảng — Quản lý thuốc */
+.card-table-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.card-table-search .header-search {
+  flex: 1 1 220px;
+  max-width: 360px;
+  position: relative;
+}
+
+.card-table-search .header-search input {
+  width: 100%;
+}

@@ -559,6 +559,162 @@ const AdminDashboard = {
         return [];
     },
 
+    /** Gộp phiếu nhập (cũ) + lô nhập trực tiếp (kho-thuoc / kho-vaccine), mới nhất trước. */
+    _mergeNhapKhoGanDay(phieuList, khoList, loai = 'thuoc', limit = 12) {
+        const rows = [];
+        (phieuList || []).forEach((p) => {
+            const chiTiet = loai === 'vaccine' ? p.chi_tiet_vaccine : p.chi_tiet_thuoc;
+            const soLuong = Array.isArray(chiTiet)
+                ? chiTiet.reduce((sum, ct) => sum + Number(ct.so_luong || 0), 0)
+                : 0;
+            rows.push({
+                nguon: 'Phiếu nhập',
+                ma: p.ma_phieu || '—',
+                ten: loai === 'vaccine' ? 'Vaccine (phiếu)' : 'Thuốc (phiếu)',
+                ncc: p.ten_nha_cung_cap || '—',
+                so_luong: soLuong,
+                ngay: p.ngay_nhap,
+                tong_tien: p.tong_tien,
+                lo_sx: '—',
+                han: '—',
+                duyet: p.da_duyet_chi,
+                sortAt: p.ngay_nhap ? new Date(p.ngay_nhap).getTime() : 0,
+            });
+        });
+        (khoList || []).forEach((k) => {
+            const ten = loai === 'vaccine' ? k.ten_vaccine : k.ten_thuoc;
+            const ma = loai === 'vaccine' ? k.ma_vaccine : k.ma_thuoc;
+            const donGia = loai === 'vaccine' ? k.gia_nhap : k.don_gia_nhap;
+            let tongTien = k.tong_tien;
+            if (tongTien == null && donGia != null) {
+                tongTien = Number(donGia) * Number(k.so_luong || 0);
+            }
+            rows.push({
+                nguon: 'Nhập trực tiếp',
+                ma: ma || '—',
+                ten: ten || '—',
+                ncc: donGia != null ? `ĐG nhập: ${this.formatMoney(donGia)}` : '—',
+                so_luong: k.so_luong ?? 0,
+                ngay: k.ngay_nhap,
+                tong_tien: tongTien,
+                lo_sx: k.lo_sx || '—',
+                han: k.han_su_dung,
+                duyet: null,
+                sortAt: k.ngay_nhap ? new Date(k.ngay_nhap).getTime() : 0,
+            });
+        });
+        rows.sort((a, b) => (b.sortAt || 0) - (a.sortAt || 0));
+        return rows.slice(0, limit);
+    },
+
+    _htmlNhapKhoGanDayTable(rows, loai = 'thuoc') {
+        if (!rows.length) {
+            return '<p class="text-muted">Chưa có dữ liệu nhập kho. Dùng nút <strong>Nhập kho</strong> để tạo lô mới.</p>';
+        }
+        const showDuyet = loai === 'vaccine';
+        return `
+            <div class="table-wrapper">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Nguồn</th>
+                            <th>Mã phiếu / Mã hàng</th>
+                            <th>Tên</th>
+                            <th>NCC / Ghi chú</th>
+                            <th>SL nhập</th>
+                            <th>Ngày nhập</th>
+                            <th>Tổng tiền</th>
+                            <th>Lô</th>
+                            <th>Hạn SD</th>
+                            ${showDuyet ? '<th>Duyệt</th>' : ''}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows
+                            .map((r) => {
+                                const ngayStr = r.ngay
+                                    ? String(r.ngay).includes('T')
+                                        ? this.formatDateTime(r.ngay)
+                                        : this.formatDate(r.ngay)
+                                    : '—';
+                                const duyetCell =
+                                    r.duyet === true
+                                        ? '<span class="badge badge-success">Đã duyệt</span>'
+                                        : r.duyet === false
+                                          ? '<span class="badge badge-warning">Chờ</span>'
+                                          : '—';
+                                return `
+                            <tr>
+                                <td><span class="badge ${r.nguon === 'Nhập trực tiếp' ? 'badge-info' : 'badge-secondary'}">${this.escapeHtml(r.nguon)}</span></td>
+                                <td>${this.escapeHtml(r.ma)}</td>
+                                <td>${this.escapeHtml(r.ten)}</td>
+                                <td>${this.escapeHtml(r.ncc)}</td>
+                                <td><strong>${r.so_luong}</strong></td>
+                                <td>${ngayStr}</td>
+                                <td>${r.tong_tien != null ? this.formatMoney(r.tong_tien) : '—'}</td>
+                                <td>${this.escapeHtml(r.lo_sx)}</td>
+                                <td>${r.han ? this.formatDate(r.han) : '—'}</td>
+                                ${showDuyet ? `<td>${duyetCell}</td>` : ''}
+                            </tr>`;
+                            })
+                            .join('')}
+                    </tbody>
+                </table>
+            </div>
+            <p class="text-muted small mt-2 mb-0">Gồm phiếu nhập cũ và lô <strong>Nhập trực tiếp</strong> (kế toán / quản lý kho). SL lô trực tiếp = số lượng tại thời điểm nhập (có thể giảm sau khi xuất/bán).</p>`;
+    },
+
+    _tableSearchBarHtml(inputId, placeholder = 'Tìm kiếm...') {
+        return `
+            <div class="card-table-search">
+                <div class="header-search">
+                    <i class="fas fa-search"></i>
+                    <input type="search" id="${inputId}" class="admin-local-table-search" placeholder="${this.escapeHtml(placeholder)}" autocomplete="off"/>
+                </div>
+                <span class="text-muted small" id="${inputId}-hint"></span>
+            </div>`;
+    },
+
+    _bindTableSearch(inputId) {
+        const input = document.getElementById(inputId);
+        if (!input || input.dataset.bound === '1') return;
+        input.dataset.bound = '1';
+        const cardBody = input.closest('.card-body');
+        const tbody = cardBody?.querySelector('table.data-table tbody');
+        const hint = document.getElementById(`${inputId}-hint`);
+        if (!tbody) return;
+        const rows = [...tbody.querySelectorAll('tr')];
+        const apply = () => {
+            const q = (input.value || '').trim().toLowerCase();
+            let shown = 0;
+            rows.forEach((tr) => {
+                const ok = !q || (tr.textContent || '').toLowerCase().includes(q);
+                tr.style.display = ok ? '' : 'none';
+                if (ok) shown += 1;
+            });
+            if (hint) {
+                if (!q) hint.textContent = '';
+                else if (!shown) hint.textContent = 'Không có dòng phù hợp';
+                else hint.textContent = `Hiển thị ${shown}/${rows.length} dòng`;
+            }
+        };
+        input.addEventListener('input', apply);
+        input.addEventListener('search', apply);
+    },
+
+    _initMedicinePageSearches() {
+        [
+            'search-med-ncc',
+            'search-med-loai-thuoc',
+            'search-med-don-vi',
+            'search-med-nhap-thuoc',
+            'search-med-thuoc',
+            'search-med-loai-vac',
+            'search-med-nhap-vac',
+            'search-med-vac',
+        ].forEach((id) => this._bindTableSearch(id));
+    },
+
     _collectApiErrors(payload, prefix = '') {
         if (payload == null) return [];
         if (typeof payload === 'string') return [prefix ? `${prefix}: ${payload}` : payload];
@@ -1158,17 +1314,19 @@ const AdminDashboard = {
                 loaiThuoc = this._extractList(loaiRes);
                 donViTinh = this._extractList(donViRes);
                 nhaCungCap = this._extractList(nccRes);
-                phieuNhapGanDay = this._extractList(phieuNhapRes).slice(0, 8);
-                khoThuocGanDay = this._extractList(khoRes).slice(0, 8);
+                phieuNhapGanDay = this._extractList(phieuNhapRes).slice(0, 20);
+                khoThuocGanDay = this._extractList(khoRes).slice(0, 50);
                 loaiVaccine = this._extractList(loaiVacRes);
                 vaccines = this._extractList(vacRes);
-                phieuNhapVacGanDay = this._extractList(phieuVacRes).slice(0, 8);
-                khoVaccineGanDay = this._extractList(khoVacRes).slice(0, 8);
+                phieuNhapVacGanDay = this._extractList(phieuVacRes).slice(0, 20);
+                khoVaccineGanDay = this._extractList(khoVacRes).slice(0, 50);
             } catch (e) {
                 console.warn('Thuoc app not available');
             }
             this._currentData.medicines = medicines;
             this._currentData.vaccines = vaccines;
+            const nhapThuocMerged = this._mergeNhapKhoGanDay(phieuNhapGanDay, khoThuocGanDay, 'thuoc');
+            const nhapVacMerged = this._mergeNhapKhoGanDay(phieuNhapVacGanDay, khoVaccineGanDay, 'vaccine');
 
             content.innerHTML = `
                 <div class="card" style="margin-bottom: 16px;">
@@ -1180,6 +1338,7 @@ const AdminDashboard = {
                     </div>
                     <div class="card-body">
                         ${nhaCungCap.length ? `
+                            ${this._tableSearchBarHtml('search-med-ncc', 'Tìm mã NCC, tên, điện thoại...')}
                             <div class="table-wrapper">
                                 <table class="data-table">
                                     <thead>
@@ -1231,6 +1390,7 @@ const AdminDashboard = {
                     </div>
                     <div class="card-body">
                         ${loaiThuoc.length ? `
+                            ${this._tableSearchBarHtml('search-med-loai-thuoc', 'Tìm tên loại, mô tả...')}
                             <div class="table-wrapper">
                                 <table class="data-table">
                                     <thead>
@@ -1271,6 +1431,7 @@ const AdminDashboard = {
                     </div>
                     <div class="card-body">
                         ${donViTinh.length ? `
+                            ${this._tableSearchBarHtml('search-med-don-vi', 'Tìm tên đơn vị, ký hiệu...')}
                             <div class="table-wrapper">
                                 <table class="data-table">
                                     <thead>
@@ -1307,61 +1468,8 @@ const AdminDashboard = {
                         <div class="card-title">Nhập kho gần đây</div>
                     </div>
                     <div class="card-body">
-                        ${phieuNhapGanDay.length ? `
-                            <div class="table-wrapper">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Mã phiếu</th>
-                                            <th>Nhà cung cấp</th>
-                                            <th>Số lượng nhập (theo phiếu)</th>
-                                            <th>Ngày nhập</th>
-                                            <th>Tổng tiền</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${phieuNhapGanDay.map(p => {
-                                            const soLuongNhap = Array.isArray(p.chi_tiet_thuoc)
-                                                ? p.chi_tiet_thuoc.reduce((sum, ct) => sum + Number(ct.so_luong || 0), 0)
-                                                : 0;
-                                            return `
-                                            <tr>
-                                                <td>${this.escapeHtml(p.ma_phieu || '—')}</td>
-                                                <td>${this.escapeHtml(p.ten_nha_cung_cap || '—')}</td>
-                                                <td>${soLuongNhap}</td>
-                                                <td>${p.ngay_nhap ? this.formatDateTime(p.ngay_nhap) : '—'}</td>
-                                                <td>${this.formatMoney(p.tong_tien || 0)}</td>
-                                            </tr>
-                                        `}).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ` : (khoThuocGanDay.length ? `
-                            <div class="table-wrapper">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Thuốc</th>
-                                            <th>Lô</th>
-                                            <th>Số lượng hiện tại</th>
-                                            <th>Ngày nhập</th>
-                                            <th>Hạn dùng</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${khoThuocGanDay.map(k => `
-                                            <tr>
-                                                <td>${this.escapeHtml(k.ten_thuoc || k.thuoc_ten || '—')}</td>
-                                                <td>${this.escapeHtml(k.lo_sx || '—')}</td>
-                                                <td>${k.so_luong || 0}</td>
-                                                <td>${k.ngay_nhap ? this.formatDate(k.ngay_nhap) : '—'}</td>
-                                                <td>${k.han_su_dung ? this.formatDate(k.han_su_dung) : '—'}</td>
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ` : '<p class="text-muted">Chưa có dữ liệu nhập kho.</p>')}
+                        ${nhapThuocMerged.length ? this._tableSearchBarHtml('search-med-nhap-thuoc', 'Tìm mã, tên, NCC, lô...') : ''}
+                        ${this._htmlNhapKhoGanDayTable(nhapThuocMerged, 'thuoc')}
                     </div>
                 </div>
 
@@ -1379,6 +1487,7 @@ const AdminDashboard = {
                     </div>
                     <div class="card-body">
                         ${medicines.length > 0 ? `
+                            ${this._tableSearchBarHtml('search-med-thuoc', 'Tìm mã, tên, NCC, hoạt chất...')}
                             <div class="table-wrapper">
                                 <table class="data-table">
                                     <thead>
@@ -1445,6 +1554,7 @@ const AdminDashboard = {
                     </div>
                     <div class="card-body">
                         ${loaiVaccine.length ? `
+                            ${this._tableSearchBarHtml('search-med-loai-vac', 'Tìm tên loại, mô tả...')}
                             <div class="table-wrapper">
                                 <table class="data-table">
                                     <thead>
@@ -1481,62 +1591,8 @@ const AdminDashboard = {
                         <div class="card-title">Nhập kho vaccine gần đây</div>
                     </div>
                     <div class="card-body">
-                        ${phieuNhapVacGanDay.length ? `
-                            <div class="table-wrapper">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Mã phiếu</th>
-                                            <th>Nhà cung cấp</th>
-                                            <th>Số lượng nhập (theo phiếu)</th>
-                                            <th>Ngày nhập</th>
-                                            <th>Tổng tiền</th>
-                                            <th>Duyệt chi</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${phieuNhapVacGanDay.map(p => {
-                                            const soNhap = Array.isArray(p.chi_tiet_vaccine)
-                                                ? p.chi_tiet_vaccine.reduce((sum, ct) => sum + Number(ct.so_luong || 0), 0)
-                                                : 0;
-                                            return `
-                                            <tr>
-                                                <td>${this.escapeHtml(p.ma_phieu || '—')}</td>
-                                                <td>${this.escapeHtml(p.ten_nha_cung_cap || '—')}</td>
-                                                <td>${soNhap}</td>
-                                                <td>${p.ngay_nhap ? this.formatDateTime(p.ngay_nhap) : '—'}</td>
-                                                <td>${this.formatMoney(p.tong_tien || 0)}</td>
-                                                <td>${p.da_duyet_chi ? '<span class="badge badge-success">Đã duyệt</span>' : '<span class="badge badge-warning">Chờ</span>'}</td>
-                                            </tr>
-                                        `;
-                                        }).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ` : (khoVaccineGanDay.length ? `
-                            <div class="table-wrapper">
-                                <table class="data-table">
-                                    <thead>
-                                        <tr>
-                                            <th>Vaccine</th>
-                                            <th>Lô</th>
-                                            <th>Số lượng</th>
-                                            <th>Hạn dùng</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${khoVaccineGanDay.map(k => `
-                                            <tr>
-                                                <td>${this.escapeHtml(k.ten_vaccine || '—')}</td>
-                                                <td>${this.escapeHtml(k.lo_sx || '—')}</td>
-                                                <td>${k.so_luong || 0}</td>
-                                                <td>${k.han_su_dung ? this.formatDate(k.han_su_dung) : '—'}</td>
-                                            </tr>
-                                        `).join('')}
-                                    </tbody>
-                                </table>
-                            </div>
-                        ` : '<p class="text-muted">Chưa có dữ liệu nhập kho vaccine.</p>')}
+                        ${nhapVacMerged.length ? this._tableSearchBarHtml('search-med-nhap-vac', 'Tìm mã, tên, NCC, lô...') : ''}
+                        ${this._htmlNhapKhoGanDayTable(nhapVacMerged, 'vaccine')}
                     </div>
                 </div>
 
@@ -1554,6 +1610,7 @@ const AdminDashboard = {
                     </div>
                     <div class="card-body">
                         ${vaccines.length > 0 ? `
+                            ${this._tableSearchBarHtml('search-med-vac', 'Tìm mã, tên, NCC, phòng bệnh...')}
                             <div class="table-wrapper">
                                 <table class="data-table">
                                     <thead>
@@ -1605,6 +1662,7 @@ const AdminDashboard = {
                 </div>
                 </div>
             `;
+            this._initMedicinePageSearches();
         } catch (error) {
             console.error('Error loading medicines:', error);
             content.innerHTML = '<div class="card"><div class="card-body"><p class="text-muted">Lỗi tải dữ liệu</p></div></div>';
@@ -1935,6 +1993,7 @@ const AdminDashboard = {
                 <label>Lô SX</label>
                 <input type="text" id="nkv-lo" class="form-control">
             </div>
+            <p id="nkv-tong-preview" class="text-muted small" style="margin-top:12px"></p>
         `, async () => {
             const payload = {
                 vaccine: document.getElementById('nkv-vac').value,
@@ -1958,6 +2017,18 @@ const AdminDashboard = {
                 Toast.error(result?.detail || result?.error || 'Nhập kho thất bại');
             }
         });
+        const vacCatalog = {};
+        list.forEach((v) => { vacCatalog[String(v.id)] = v; });
+        setTimeout(
+            () =>
+                this._bindNhapKhoTongTienPreview(vacCatalog, {
+                    selectId: 'nkv-vac',
+                    qtyId: 'nkv-sl',
+                    previewId: 'nkv-tong-preview',
+                    loai: 'vaccine',
+                }),
+            0
+        );
     },
     
     // ─── Quản lý thông báo (phát hành) ───
@@ -3651,6 +3722,34 @@ const AdminDashboard = {
         }
     },
     
+    _tinhTongTienNhapPreview(soLuong, donGia) {
+        const sl = parseInt(String(soLuong || '0'), 10);
+        const dg = parseFloat(String(donGia || '0'));
+        if (!sl || sl < 1 || !dg) return 0;
+        return sl * dg;
+    },
+
+    _bindNhapKhoTongTienPreview(catalogById, opts = {}) {
+        const { selectId, qtyId, previewId, loai = 'thuoc' } = opts;
+        const sel = document.getElementById(selectId);
+        const qty = document.getElementById(qtyId);
+        const preview = document.getElementById(previewId);
+        if (!sel || !qty || !preview) return;
+        const refresh = () => {
+            const row = catalogById[String(sel.value || '')] || {};
+            const dg = loai === 'vaccine' ? row.gia_nhap : row.don_gia_nhap;
+            const tong = this._tinhTongTienNhapPreview(qty.value, dg);
+            const dgStr = dg != null && dg !== '' ? this.formatMoney(dg) : '—';
+            preview.innerHTML =
+                tong > 0
+                    ? `<strong>Tổng tiền nhập (ước tính):</strong> ${this.formatMoney(tong)} <span class="text-muted">(SL × ĐG nhập ${dgStr})</span>`
+                    : '<span class="text-muted">Chưa có đơn giá nhập trên danh mục — cập nhật giá thuốc/vaccine trước.</span>';
+        };
+        sel.addEventListener('change', refresh);
+        qty.addEventListener('input', refresh);
+        refresh();
+    },
+
     showModal(title, body, onConfirm) {
         const modalContainer = document.getElementById('modal-container');
         const modalId = 'dynamic-modal-' + Date.now();
@@ -4112,6 +4211,7 @@ const AdminDashboard = {
                 <label>Lô sản xuất</label>
                 <input type="text" id="nk-lo-sx" class="form-control" placeholder="VD: LOSX-2026-001">
             </div>
+            <p id="nk-tong-preview" class="text-muted small" style="margin-top:12px"></p>
         `, async () => {
             const payload = {
                 thuoc: document.getElementById('nk-thuoc')?.value,
@@ -4137,6 +4237,18 @@ const AdminDashboard = {
                 Toast.error(result?.error || result?.detail || 'Nhập kho thất bại');
             }
         });
+        const thuocCatalog = {};
+        thuocList.forEach((t) => { thuocCatalog[String(t.id)] = t; });
+        setTimeout(
+            () =>
+                this._bindNhapKhoTongTienPreview(thuocCatalog, {
+                    selectId: 'nk-thuoc',
+                    qtyId: 'nk-so-luong',
+                    previewId: 'nk-tong-preview',
+                    loai: 'thuoc',
+                }),
+            0
+        );
     },
 
     async deleteMedicine(id, name) {

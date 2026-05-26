@@ -47,6 +47,11 @@ def la_ke_toan(user) -> bool:
     return nv is not None and getattr(nv, 'chuc_vu', None) == 'KE_TOAN'
 
 
+def la_duoc_thao_tac_kho(user) -> bool:
+    """Kế toán, quản lý kho hoặc admin — nhập / xuất / sửa lô tồn."""
+    return la_quan_ly_kho(user) or la_ke_toan(user)
+
+
 def la_admin_he_thong(user) -> bool:
     """Admin hoặc superuser (CRUD danh mục thuốc/vaccine trong admin panel)."""
     if not user or not getattr(user, 'is_authenticated', False):

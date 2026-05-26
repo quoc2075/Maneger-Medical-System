@@ -27,9 +27,27 @@ class NhaCungCapSerializer(serializers.ModelSerializer):
 
 # ==================== SERIALIZERS CHO THUỐC ====================
 
+def _tinh_tong_tien_nhap_lot(so_luong, don_gia):
+    try:
+        sl = int(so_luong or 0)
+        dg = Decimal(str(don_gia if don_gia is not None else '0'))
+        return float(dg * sl)
+    except (TypeError, ValueError, ArithmeticError):
+        return 0.0
+
+
 class KhoThuocSerializer(serializers.ModelSerializer):
+    ma_thuoc = serializers.CharField(source='thuoc.ma_thuoc', read_only=True)
     ten_thuoc = serializers.CharField(source='thuoc.ten_thuoc', read_only=True)
+    don_gia_nhap = serializers.DecimalField(
+        source='thuoc.don_gia_nhap', read_only=True, max_digits=10, decimal_places=2
+    )
+    tong_tien = serializers.SerializerMethodField()
     con_han = serializers.BooleanField(read_only=True)
+
+    def get_tong_tien(self, obj):
+        dg = getattr(getattr(obj, 'thuoc', None), 'don_gia_nhap', None)
+        return _tinh_tong_tien_nhap_lot(obj.so_luong, dg)
     
     class Meta:
         model = KhoThuoc
@@ -122,8 +140,17 @@ class LoaiVaccineSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class KhoVaccineSerializer(serializers.ModelSerializer):
+    ma_vaccine = serializers.CharField(source='vaccine.ma_vaccine', read_only=True)
     ten_vaccine = serializers.CharField(source='vaccine.ten_vaccine', read_only=True)
+    gia_nhap = serializers.DecimalField(
+        source='vaccine.gia_nhap', read_only=True, max_digits=10, decimal_places=2
+    )
+    tong_tien = serializers.SerializerMethodField()
     con_han = serializers.BooleanField(read_only=True)
+
+    def get_tong_tien(self, obj):
+        gn = getattr(getattr(obj, 'vaccine', None), 'gia_nhap', None)
+        return _tinh_tong_tien_nhap_lot(obj.so_luong, gn)
     
     class Meta:
         model = KhoVaccine

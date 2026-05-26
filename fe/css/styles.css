@@ -320,6 +320,22 @@ select.form-control { cursor: pointer; }
 textarea.form-control { resize: vertical; min-height: 90px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+/* Hàng lọc ngày + nút (kế toán, báo cáo): flex, nút thẳng hàng với input */
+.form-row--inline {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 12px;
+}
+.form-row--inline .form-group {
+  margin-bottom: 0;
+  flex: 0 1 auto;
+}
+.form-row--inline .form-label--spacer {
+  visibility: hidden;
+  user-select: none;
+}
 .form-error {
   color: var(--c-danger);
   font-size: 12px;

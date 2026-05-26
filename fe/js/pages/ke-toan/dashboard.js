@@ -1,5 +1,5 @@
 /**
- * Nhân viên kế toán — duyệt chi nhập kho, giá bán, doanh thu / lợi nhuận, hóa đơn.
+ * Nhân viên kế toán — giá bán, doanh thu / lợi nhuận, hóa đơn, quản lý kho.
  */
 const PageKeToanDashboard = {
   _khoSubTab: 'canh-bao',
@@ -30,7 +30,6 @@ const PageKeToanDashboard = {
     const { hoTen } = Auth.layThongTin();
     const navHtml = `
       <button type="button" class="nav-item" data-kt-nav="tom-tat" onclick="PageKeToanDashboard.loadMain('tom-tat')"><i class="fas fa-chart-pie"></i><span>Doanh thu / Lợi nhuận</span></button>
-      <button type="button" class="nav-item" data-kt-nav="duyet-chi" onclick="PageKeToanDashboard.loadMain('duyet-chi')"><i class="fas fa-file-signature"></i><span>Duyệt phiếu nhập kho</span></button>
       <button type="button" class="nav-item" data-kt-nav="gia" onclick="PageKeToanDashboard.loadMain('gia')"><i class="fas fa-tags"></i><span>Cập nhật giá</span></button>
       <button type="button" class="nav-item" data-kt-nav="hoa-don" onclick="PageKeToanDashboard.loadMain('hoa-don')"><i class="fas fa-file-invoice-dollar"></i><span>Hóa đơn / Đơn hàng</span></button>
       <button type="button" class="nav-item" data-kt-nav="quan-ly-kho" onclick="PageKeToanDashboard.loadMain('quan-ly-kho')"><i class="fas fa-warehouse"></i><span>Quản lý kho</span></button>`;
@@ -41,7 +40,7 @@ const PageKeToanDashboard = {
       navHtml,
       mainHostId: 'ketoan-main',
       userName: hoTen || 'Nhân viên',
-      userRoleLabel: 'Kế toán — Duyệt chi, giá & kho',
+      userRoleLabel: 'Kế toán — Giá, doanh thu & kho',
       contentMaxWidth: '1180px',
       headerActionsExtra: window.ThongBaoBell ? ThongBaoBell.htmlButton() : '',
     });
@@ -55,7 +54,6 @@ const PageKeToanDashboard = {
     if (!host) return;
     host.innerHTML = '<p class="text-muted">Đang tải…</p>';
     if (tab === 'tom-tat') return this._tomTat(host);
-    if (tab === 'duyet-chi') return this._duyetChi(host);
     if (tab === 'gia') return this._capNhatGia(host);
     if (tab === 'hoa-don') return this._hoaDon(host);
     if (tab === 'quan-ly-kho') return this._quanLyKho(host);
@@ -67,7 +65,6 @@ const PageKeToanDashboard = {
       { id: 'canh-bao', label: 'Cảnh báo tồn', icon: 'fa-exclamation-triangle' },
       { id: 'thuoc', label: 'Kho thuốc', icon: 'fa-pills' },
       { id: 'vaccine', label: 'Kho vaccine', icon: 'fa-syringe' },
-      { id: 'phieu-nhap', label: 'Tạo phiếu nhập', icon: 'fa-file-import' },
       { id: 'lich-su-nhap', label: 'Lịch sử nhập', icon: 'fa-history' },
     ];
   },
@@ -142,10 +139,13 @@ const PageKeToanDashboard = {
     host.innerHTML = `
       <div class="card"><div class="card-header"><strong>Tổng hợp tài chính</strong></div>
         <div class="card-body">
-          <div class="form-row" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px">
-            <div class="form-group"><label>Từ ngày</label><input type="date" id="kt-tu" class="form-control" value="${tu}"/></div>
-            <div class="form-group"><label>Đến ngày</label><input type="date" id="kt-den" class="form-control" value="${den}"/></div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="PageKeToanDashboard._fetchTomTat()">Xem</button>
+          <div class="form-row form-row--inline">
+            <div class="form-group"><label class="form-label">Từ ngày</label><input type="date" id="kt-tu" class="form-control" value="${tu}"/></div>
+            <div class="form-group"><label class="form-label">Đến ngày</label><input type="date" id="kt-den" class="form-control" value="${den}"/></div>
+            <div class="form-group">
+              <label class="form-label form-label--spacer" aria-hidden="true">&nbsp;</label>
+              <button type="button" class="btn btn-primary" onclick="PageKeToanDashboard._fetchTomTat()">Xem</button>
+            </div>
           </div>
           <div id="kt-tomtat-body"><p class="text-muted">Chọn khoảng thời gian và bấm Xem.</p></div>
         </div></div>`;
@@ -253,6 +253,8 @@ const PageKeToanDashboard = {
     const d = res?.data || {};
     const thongKe = statsRes?.data?.data || {};
     const tongQuanThongKe = thongKe.tong_quan || {};
+    /** Báo cáo chính: API tom-tat (đơn hàng + toa + tiêm). API don-hang chỉ đơn/toa, không có tiêm. */
+    const tomTatOk = !!(res.ok && res.data && typeof res.data === 'object');
     const recentRes = await Http.layDanhSach('/don-hang/don-hang/?limit=10&page=1');
     const recentRoot = recentRes?.data || {};
     const recentBills = (recentRoot.data && recentRoot.data.items) || recentRoot.items || [];
@@ -284,7 +286,11 @@ const PageKeToanDashboard = {
       })
       .join('');
 
-    const topDh = ((d.top_thuoc_don_hang && d.top_thuoc_don_hang.length ? d.top_thuoc_don_hang : thongKe.top_san_pham) || [])
+    const topDh = (
+      (tomTatOk && d.top_thuoc_don_hang && d.top_thuoc_don_hang.length
+        ? d.top_thuoc_don_hang
+        : thongKe.top_san_pham) || []
+    )
       .map(
         (x) =>
           `<tr><td>${this._esc(x.ten_thuoc || x.thuoc__ten_thuoc || '')}</td><td style="text-align:right">${x.so_luong ?? x.so_luong_ban ?? ''}</td><td style="text-align:right">${this._fmtMoney(x.doanh_thu)}</td></tr>`
@@ -297,12 +303,24 @@ const PageKeToanDashboard = {
       )
       .join('');
 
-    const doanhThuTong = Number(tongQuanThongKe.tong_doanh_thu ?? d.doanh_thu ?? 0);
-    const doanhThuDonHang = Number(tongQuanThongKe.tong_doanh_thu_don_hang ?? d.doanh_thu_don_hang ?? 0);
-    const doanhThuDonThuoc = Number(tongQuanThongKe.tong_doanh_thu_don_thuoc ?? d.doanh_thu_don_thuoc ?? 0);
-    const soDonHang = Number(tongQuanThongKe.so_don_hang_co_doanh_thu ?? d.so_don_hang ?? 0);
-    const soDonToa = Number(tongQuanThongKe.so_don_thuoc_da_thanh_toan ?? d.so_don_thuoc ?? 0);
-    const soGiaoDich = Number(tongQuanThongKe.tong_so_giao_dich_thang ?? d.so_giao_dich ?? d.so_don ?? 0);
+    const doanhThuTong = tomTatOk
+      ? Number(d.doanh_thu ?? 0)
+      : Number(tongQuanThongKe.tong_doanh_thu ?? 0);
+    const doanhThuDonHang = tomTatOk
+      ? Number(d.doanh_thu_don_hang ?? 0)
+      : Number(tongQuanThongKe.tong_doanh_thu_don_hang ?? 0);
+    const doanhThuDonThuoc = tomTatOk
+      ? Number(d.doanh_thu_don_thuoc ?? 0)
+      : Number(tongQuanThongKe.tong_doanh_thu_don_thuoc ?? 0);
+    const soDonHang = tomTatOk
+      ? Number(d.so_don_hang ?? 0)
+      : Number(tongQuanThongKe.so_don_hang_co_doanh_thu ?? 0);
+    const soDonToa = tomTatOk
+      ? Number(d.so_don_thuoc ?? 0)
+      : Number(tongQuanThongKe.so_don_thuoc_da_thanh_toan ?? 0);
+    const soGiaoDich = tomTatOk
+      ? Number(d.so_giao_dich ?? 0)
+      : Number(tongQuanThongKe.tong_so_giao_dich_thang ?? 0);
     const recentBillRows = recentBills
       .map(
         (r) => `<tr>
@@ -345,11 +363,14 @@ const PageKeToanDashboard = {
 
       <table class="data-table" style="max-width:720px;font-size:14px;margin-bottom:16px">
         <tbody>
-          <tr><td><strong>Tổng giá vốn</strong></td><td style="text-align:right;font-weight:700">${this._fmtMoney(d.gia_von_uoc_tinh)}</td></tr>
-          <tr><td>Giao dịch </td><td style="text-align:right">${soGiaoDich}</td></tr>
-          <tr><td>Phiếu nhập kho chờ duyệt chi</td><td style="text-align:right">${d.phieu_nhap_cho_duyet_chi ?? 0}</td></tr>
+          <tr><td>Giá vốn — đơn hàng</td><td style="text-align:right">${this._fmtMoney(d.gia_von_don_hang)}</td></tr>
+          <tr><td>Giá vốn — đơn toa</td><td style="text-align:right">${this._fmtMoney(d.gia_von_don_thuoc)}</td></tr>
+          <tr><td>Giá vốn — tiêm chủng</td><td style="text-align:right">${this._fmtMoney(d.gia_von_tiem)}</td></tr>
+          <tr><td><strong>Tổng giá vốn (ước tính)</strong></td><td style="text-align:right;font-weight:700">${this._fmtMoney(d.gia_von_uoc_tinh)}</td></tr>
+          <tr><td>Giao dịch</td><td style="text-align:right">${soGiaoDich}</td></tr>
         </tbody>
       </table>
+      <p class="text-muted small" style="margin:-8px 0 16px">Giá vốn thuốc/vaccine lấy theo <strong>đơn giá nhập trên danh mục</strong> × số lượng (chưa theo từng lô kho).</p>
 
       <h3 style="font-size:15px;margin:12px 0 8px">Doanh thu theo ngày</h3>
       <div style="overflow:auto;max-height:320px;border:1px solid var(--c-border,#e2e8f0);border-radius:8px">
@@ -387,43 +408,6 @@ const PageKeToanDashboard = {
         </div>
       </div>
       `;
-  },
-
-  async _duyetChi(host) {
-    const res = await Http.layDanhSach('/thuoc/phieu-nhap/?da_duyet_chi=false&ordering=-ngay_nhap');
-    const rows = this._list(res.data);
-    host.innerHTML = `
-      <p class="text-muted small mb-2">Duyệt phiếu nhập do quản lý kho lập — sau khi duyệt, hệ thống ghi nhận chi phí và cập nhật tồn kho.</p>
-      <div class="card"><div class="card-header"><strong>Phiếu nhập chờ duyệt</strong></div>
-        <div class="card-body" style="overflow:auto">
-          <table class="data-table" style="width:100%;font-size:13px">
-            <thead><tr><th>Mã phiếu</th><th>Loại</th><th>NCC</th><th>Ngày</th><th>Tổng tiền</th><th></th></tr></thead>
-            <tbody>
-              ${rows
-                .map(
-                  (p) => `
-                <tr>
-                  <td>${this._esc(p.ma_phieu)}</td>
-                  <td>${this._esc(p.loai_nhap || '')}</td>
-                  <td>${this._esc(p.ten_nha_cung_cap || '')}</td>
-                  <td>${p.ngay_nhap ? String(p.ngay_nhap).slice(0, 10) : ''}</td>
-                  <td>${Number(p.tong_tien || 0).toLocaleString('vi-VN')}</td>
-                  <td><button type="button" class="btn btn-mint btn-sm" onclick="PageKeToanDashboard._postDuyetChi('${p.id}')">Duyệt &amp; cập nhật kho</button></td>
-                </tr>`
-                )
-                .join('') || '<tr><td colspan="6">Không có phiếu chờ duyệt.</td></tr>'}
-            </tbody>
-          </table>
-        </div></div>`;
-  },
-
-  async _postDuyetChi(id) {
-    const res = await Http.tao(`/thuoc/phieu-nhap/${id}/duyet_chi/`, {});
-    if (res.ok) {
-      Toast.hien('Đã duyệt phiếu', 'Tồn kho đã được cập nhật.', 'success');
-      const host = document.getElementById('ketoan-main');
-      if (host) await this._duyetChi(host);
-    } else Toast.hien('Lỗi', (res.data && res.data.detail) || 'Thất bại', 'error');
   },
 
   async _capNhatGia(host) {
@@ -484,13 +468,16 @@ const PageKeToanDashboard = {
     host.innerHTML = `
       <div class="card mb-3"><div class="card-header"><strong>Tra cứu hóa đơn / đơn bán</strong></div>
         <div class="card-body">
-          <div class="form-row" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
-            <div class="form-group"><label>Từ ngày</label><input type="date" id="kt-hd-tu" class="form-control" value="${tu}"/></div>
-            <div class="form-group"><label>Đến ngày</label><input type="date" id="kt-hd-den" class="form-control" value="${den}"/></div>
-            <div class="form-group"><label>Hoặc chọn tháng</label><input type="month" id="kt-hd-thang" class="form-control" value="${ym}" onchange="PageKeToanDashboard._fromMonthHoaDon()"/></div>
-            <div class="form-group" style="min-width:200px"><label>Tìm mã / tên / SĐT</label>
+          <div class="form-row form-row--inline" style="margin-bottom:10px">
+            <div class="form-group"><label class="form-label">Từ ngày</label><input type="date" id="kt-hd-tu" class="form-control" value="${tu}"/></div>
+            <div class="form-group"><label class="form-label">Đến ngày</label><input type="date" id="kt-hd-den" class="form-control" value="${den}"/></div>
+            <div class="form-group"><label class="form-label">Hoặc chọn tháng</label><input type="month" id="kt-hd-thang" class="form-control" value="${ym}" onchange="PageKeToanDashboard._fromMonthHoaDon()"/></div>
+            <div class="form-group" style="min-width:200px"><label class="form-label">Tìm mã / tên / SĐT</label>
               <input type="text" id="kt-hd-search" class="form-control" placeholder="Mã đơn, tên BN…"/></div>
-            <button type="button" class="btn btn-primary btn-sm" onclick="PageKeToanDashboard._fetchHoaDon()">Tra cứu</button>
+            <div class="form-group">
+              <label class="form-label form-label--spacer" aria-hidden="true">&nbsp;</label>
+              <button type="button" class="btn btn-primary" onclick="PageKeToanDashboard._fetchHoaDon()">Tra cứu</button>
+            </div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
             <button type="button" class="btn btn-outline btn-sm" onclick="PageKeToanDashboard._presetHoaDon('today')">Hôm nay</button>

@@ -17,6 +17,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from nguoidung.roles import (
     la_quan_ly_kho,
     la_ke_toan,
+    la_duoc_thao_tac_kho,
     la_admin_he_thong,
 )
 from .models import *
@@ -319,21 +320,18 @@ class KhoThuocViewSet(viewsets.ModelViewSet):
     ordering_fields = ['ngay_nhap', 'han_su_dung', 'so_luong']
 
     def perform_create(self, serializer):
-        if not la_admin_he_thong(self.request.user):
-            raise PermissionDenied(
-                'Nhập trực tiếp vào kho chỉ dành cho quản trị viên. '
-                'Nhân viên kho vui lòng tạo phiếu nhập kho và chờ kế toán duyệt.'
-            )
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được nhập kho.')
         serializer.save()
 
     def perform_update(self, serializer):
-        if not la_quan_ly_kho(self.request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được sửa lô kho.')
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được sửa lô kho.')
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not la_quan_ly_kho(self.request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được xóa lô kho.')
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được xóa lô kho.')
         instance.delete()
 
     def get_queryset(self):
@@ -356,8 +354,8 @@ class KhoThuocViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='xuat-sl')
     def xuat_sl(self, request, pk=None):
         """Xuất kho theo lô (giảm số lượng)."""
-        if not la_quan_ly_kho(request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được xuất kho.')
+        if not la_duoc_thao_tac_kho(request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được xuất kho.')
         kho = self.get_object()
         try:
             sl = int(request.data.get('so_luong', 0) or 0)
@@ -556,21 +554,18 @@ class KhoVaccineViewSet(viewsets.ModelViewSet):
     search_fields = ['vaccine__ten_vaccine', 'lo_sx']
 
     def perform_create(self, serializer):
-        if not la_admin_he_thong(self.request.user):
-            raise PermissionDenied(
-                'Nhập trực tiếp vào kho chỉ dành cho quản trị viên. '
-                'Nhân viên kho vui lòng tạo phiếu nhập kho và chờ kế toán duyệt.'
-            )
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được nhập kho.')
         serializer.save()
 
     def perform_update(self, serializer):
-        if not la_quan_ly_kho(self.request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được sửa lô kho.')
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được sửa lô kho.')
         serializer.save()
 
     def perform_destroy(self, instance):
-        if not la_quan_ly_kho(self.request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được xóa lô kho.')
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được xóa lô kho.')
         instance.delete()
 
     def get_queryset(self):
@@ -586,8 +581,8 @@ class KhoVaccineViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='xuat-sl')
     def xuat_sl(self, request, pk=None):
         """Xuất kho vaccine theo lô."""
-        if not la_quan_ly_kho(request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được xuất kho.')
+        if not la_duoc_thao_tac_kho(request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được xuất kho.')
         kho = self.get_object()
         try:
             sl = int(request.data.get('so_luong', 0) or 0)
@@ -617,11 +612,22 @@ class PhieuNhapKhoViewSet(viewsets.ModelViewSet):
     ordering_fields = ['ngay_nhap', 'tong_tien']
 
     def perform_create(self, serializer):
-        """Tạo phiếu nhập — tồn kho chỉ cập nhật sau khi kế toán duyệt phiếu."""
-        if not la_quan_ly_kho(self.request.user):
-            raise PermissionDenied('Chỉ nhân viên quản lý kho hoặc quản trị viên được tạo phiếu nhập.')
-        # NguoiDung dùng USERNAME_FIELD = ten_dang_nhap — không có .username
+        """Tạo phiếu nhập (API) — cập nhật tồn kho ngay khi lưu."""
+        if not la_duoc_thao_tac_kho(self.request.user):
+            raise PermissionDenied('Chỉ kế toán, quản lý kho hoặc quản trị viên được nhập kho.')
         serializer.save(nguoi_nhap=self.request.user.get_username())
+        phieu = serializer.instance
+        if phieu and not phieu.da_cap_nhat_kho:
+            _cap_nhat_kho_tu_phieu_nhap(phieu)
+            phieu.da_cap_nhat_kho = True
+            phieu.da_duyet_chi = True
+            phieu.nguoi_duyet_chi = getattr(self.request.user, 'ten_dang_nhap', '') or str(self.request.user.pk)
+            phieu.ngay_duyet_chi = timezone.now()
+            phieu.save(
+                update_fields=[
+                    'da_cap_nhat_kho', 'da_duyet_chi', 'nguoi_duyet_chi', 'ngay_duyet_chi',
+                ]
+            )
 
     @action(detail=True, methods=['post'])
     def xac_nhan_thanh_toan(self, request, pk=None):
@@ -734,8 +740,16 @@ class DashboardViewSet(viewsets.ViewSet):
             tong=Sum(F('so_luong') * F('vaccine__gia_nhap'))
         )['tong'] or 0
         
-        # Nhập kho gần đây
-        nhap_kho_gan_day = PhieuNhapKho.objects.order_by('-ngay_nhap')[:10]
+        # Nhập kho gần đây: phiếu cũ + lô nhập trực tiếp
+        nhap_kho_gan_day_phieu = list(
+            PhieuNhapKho.objects.order_by('-ngay_nhap')[:10]
+        )
+        nhap_kho_gan_day_lo_thuoc = list(
+            KhoThuoc.objects.select_related('thuoc').order_by('-ngay_nhap')[:10]
+        )
+        nhap_kho_gan_day_lo_vac = list(
+            KhoVaccine.objects.select_related('vaccine').order_by('-ngay_nhap')[:10]
+        )
         
         return Response({
             'thuoc': {
@@ -748,7 +762,9 @@ class DashboardViewSet(viewsets.ViewSet):
                 'sap_het_han': vaccine_sap_het_han,
                 'gia_tri_ton': gia_tri_ton_vaccine
             },
-            'nhap_kho_gan_day': PhieuNhapKhoSerializer(nhap_kho_gan_day, many=True).data
+            'nhap_kho_gan_day': PhieuNhapKhoSerializer(nhap_kho_gan_day_phieu, many=True).data,
+            'nhap_kho_lo_thuoc': KhoThuocSerializer(nhap_kho_gan_day_lo_thuoc, many=True).data,
+            'nhap_kho_lo_vaccine': KhoVaccineSerializer(nhap_kho_gan_day_lo_vac, many=True).data,
         })
 
     @action(detail=False, methods=['get'])
@@ -806,13 +822,14 @@ class DashboardViewSet(viewsets.ViewSet):
         - Đơn thuốc toa: đã có doanh (da_thanh_toan hoặc trạng thái đã thanh toán/hoàn thành).
         - Vào kỳ nếu ngay_tao hoặc ngay_cap_nhat nằm trong [tu, den] (theo múi giờ TIME_ZONE).
         - Lọc thời gian bằng datetime có timezone (tránh lỗi MySQL + USE_TZ với __date/__year).
-        - Giá vốn: Σ (SL × đơn giá nhập thuốc), NULL coi như 0.
+        - Giá vốn ước tính: thuốc (SL × đơn giá nhập danh mục) + vaccine tiêm (1 mũi × giá nhập danh mục).
         """
         if not (la_ke_toan(request.user) or la_admin_he_thong(request.user)):
             raise PermissionDenied('Chỉ kế toán hoặc quản trị viên được xem báo cáo tài chính.')
         from phongkham.time_utils import bounds_for_local_days
         from benhan.revenue_utils import don_thuoc_co_doanh_q
         from donhang.models import DonHang, ChiTietDonHang
+        from donhang.revenue_utils import loc_don_hang_theo_ky_doanh
         from benhan.models import DonThuoc, ChiTietDonThuoc, LichSuTiemChung
 
         tu = request.query_params.get('tu') or request.query_params.get('tu_ngay')
@@ -843,10 +860,11 @@ class DashboardViewSet(viewsets.ViewSet):
             DonHang.TrangThai.DANG_CHUAN_BI,
             DonHang.TrangThai.DANG_GIAO,
         )
-        qs_don_co_doanh = DonHang.objects.filter(trang_thai__in=_tt_doanh_hang).filter(
-            Q(ngay_tao__gte=start, ngay_tao__lte=end)
-            | Q(ngay_cap_nhat__gte=start, ngay_cap_nhat__lte=end)
-        ).distinct()
+        qs_don_co_doanh = loc_don_hang_theo_ky_doanh(
+            DonHang.objects.filter(trang_thai__in=_tt_doanh_hang),
+            str(tu)[:10],
+            str(den)[:10],
+        )
 
         don_thuoc_qs = DonThuoc.objects.filter(don_thuoc_co_doanh_q()).filter(
             Q(ngay_tao__gte=start, ngay_tao__lte=end)
@@ -859,7 +877,18 @@ class DashboardViewSet(viewsets.ViewSet):
             ngay_tiem__lte=den_d,
         )
 
-        doanh_thu_don_hang = float(qs_don_co_doanh.aggregate(s=Sum('tong_tien'))['s'] or 0)
+        _dh_tong_tien = float(qs_don_co_doanh.aggregate(s=Sum('tong_tien'))['s'] or 0)
+        _dh_tu_chi_tiet = float(
+            ChiTietDonHang.objects.filter(don_hang__in=qs_don_co_doanh).aggregate(
+                s=Sum(
+                    F('don_gia') * F('so_luong') - F('chiet_khau'),
+                    output_field=_dec_out,
+                )
+            )['s']
+            or 0
+        )
+        # Một số đơn cũ tong_tien=0 nhưng chi tiết vẫn có doanh — lấy max để khớp top SP
+        doanh_thu_don_hang = max(_dh_tong_tien, _dh_tu_chi_tiet)
         doanh_thu_don_thuoc = float(don_thuoc_qs.aggregate(s=Sum('tong_tien'))['s'] or 0)
         doanh_thu_tiem = float(
             tiem_qs.aggregate(
@@ -887,16 +916,21 @@ class DashboardViewSet(viewsets.ViewSet):
             )
         )['s'] or 0
 
-        gia_von = float(gv_dh) + float(gv_dt)
+        # Giá vốn tiêm: 1 mũi DA_TIEM = 1 × giá nhập vaccine trên danh mục (ước tính, khớp trừ kho)
+        gv_tiem = tiem_qs.aggregate(
+            s=Sum(Coalesce(F('vaccine__gia_nhap'), _zero_dgn), output_field=_dec_out)
+        )['s'] or 0
+
+        gia_von = float(gv_dh) + float(gv_dt) + float(gv_tiem)
         loi_nhuan = doanh_thu - gia_von
 
         phieu_cho_duyet = PhieuNhapKho.objects.filter(da_duyet_chi=False).count()
 
-        # Theo ngày (theo lịch VN): TruncDate có tzinfo
+        # Theo ngày: ưu tiên ngày thanh toán, không có TT thì ngày tạo đơn
         dh_rows = (
             qs_don_co_doanh.annotate(
                 ngay_key=TruncDate(
-                    Coalesce(F('ngay_cap_nhat'), F('ngay_tao')),
+                    Coalesce(F('thanh_toan__ngay_thanh_toan'), F('ngay_tao')),
                     tzinfo=_tz,
                 )
             )
@@ -988,6 +1022,7 @@ class DashboardViewSet(viewsets.ViewSet):
                 'gia_von_uoc_tinh': gia_von,
                 'gia_von_don_hang': float(gv_dh),
                 'gia_von_don_thuoc': float(gv_dt),
+                'gia_von_tiem': float(gv_tiem),
                 'loi_nhuan_uoc_tinh': loi_nhuan,
                 'so_don_hang': qs_don_co_doanh.count(),
                 'so_don_thuoc': don_thuoc_qs.count(),
@@ -1016,8 +1051,9 @@ class DashboardViewSet(viewsets.ViewSet):
                 'ghi_chu': (
                     'Đơn hàng: Hoàn thành hoặc Đã thanh toán (đã thu). '
                     'Đơn thuốc toa: đã thanh toán / hoàn thành (theo cờ và trạng thái). '
-                    'Tiêm chủng: các mũi đã tiêm (DA_TIEM), lấy giá theo bảng giá vaccine hiện tại. '
-                    'Vào kỳ nếu ngày tạo hoặc ngày cập nhật cuối nằm trong khoảng (theo giờ hệ thống).'
+                    'Tiêm chủng: các mũi đã tiêm (DA_TIEM), doanh thu = giá tiêm; giá vốn = giá nhập vaccine × 1 mũi. '
+                    'Thuốc bán: giá vốn = đơn giá nhập trên danh mục × số lượng (ước tính, chưa theo lô kho FIFO). '
+                    'Đơn hàng vào kỳ theo ngày thanh toán (hoặc ngày tạo nếu chưa có TT).'
                 ),
             }
         )
