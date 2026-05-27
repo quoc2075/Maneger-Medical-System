@@ -57,3 +57,13 @@ def la_admin_he_thong(user) -> bool:
     if not user or not getattr(user, 'is_authenticated', False):
         return False
     return bool(getattr(user, 'is_superuser', False) or getattr(user, 'vai_tro', None) == 'ADMIN')
+
+
+def la_xem_bao_cao_tai_chinh(user) -> bool:
+    """Kế toán, admin hoặc nhân viên — xem / xuất báo cáo doanh thu."""
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False):
+        return True
+    vt = getattr(user, 'vai_tro', None)
+    return vt in ('ADMIN', 'NHAN_VIEN') or la_ke_toan(user)

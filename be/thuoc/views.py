@@ -7,7 +7,7 @@ from django.utils import timezone
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from rest_framework import viewsets, status, generics, filters
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.exceptions import PermissionDenied
@@ -19,6 +19,7 @@ from nguoidung.roles import (
     la_ke_toan,
     la_duoc_thao_tac_kho,
     la_admin_he_thong,
+    la_xem_bao_cao_tai_chinh,
 )
 from .models import *
 from .serializers import *
@@ -815,245 +816,34 @@ class DashboardViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['get'], url_path='ke-toan/tom-tat')
     def tom_tat_ke_toan(self, request):
-        """
-        Thống kê doanh thu & lợi nhuận (ước tính) cho kế toán.
+        """Thống kê doanh thu & lợi nhuận (ước tính) cho kế toán / admin."""
+        if not la_xem_bao_cao_tai_chinh(request.user):
+            raise PermissionDenied('Không có quyền xem báo cáo tài chính.')
+        from baocao.financial_service import BaoCaoTaiChinhService
 
-        - Đơn hàng: HOAN_THANH hoặc DA_THANH_TOAN (đã thu tiền tại quầy / chờ giao).
-        - Đơn thuốc toa: đã có doanh (da_thanh_toan hoặc trạng thái đã thanh toán/hoàn thành).
-        - Vào kỳ nếu ngay_tao hoặc ngay_cap_nhat nằm trong [tu, den] (theo múi giờ TIME_ZONE).
-        - Lọc thời gian bằng datetime có timezone (tránh lỗi MySQL + USE_TZ với __date/__year).
-        - Giá vốn ước tính: thuốc (SL × đơn giá nhập danh mục) + vaccine tiêm (1 mũi × giá nhập danh mục).
-        """
-        if not (la_ke_toan(request.user) or la_admin_he_thong(request.user)):
-            raise PermissionDenied('Chỉ kế toán hoặc quản trị viên được xem báo cáo tài chính.')
-        from phongkham.time_utils import bounds_for_local_days
-        from benhan.revenue_utils import don_thuoc_co_doanh_q
-        from donhang.models import DonHang, ChiTietDonHang
-        from donhang.revenue_utils import loc_don_hang_theo_ky_doanh
-        from benhan.models import DonThuoc, ChiTietDonThuoc, LichSuTiemChung
-
-        tu = request.query_params.get('tu') or request.query_params.get('tu_ngay')
-        den = request.query_params.get('den') or request.query_params.get('den_ngay')
-        if not tu or not den:
-            return Response(
-                {'error': 'Cần tham số tu và den (định dạng YYYY-MM-DD)'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         try:
-            tu_d = datetime.strptime(str(tu)[:10], '%Y-%m-%d').date()
-            den_d = datetime.strptime(str(den)[:10], '%Y-%m-%d').date()
-        except ValueError:
-            return Response({'error': 'tu/den không đúng định dạng YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
+            params = BaoCaoTaiChinhService.parse_query_params(request.query_params)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(BaoCaoTaiChinhService.thong_ke(**params))
 
-        start, end = bounds_for_local_days(tu_d, den_d)
-        _tz = ZoneInfo(str(settings.TIME_ZONE))
 
-        _dec_out = DecimalField(max_digits=22, decimal_places=2)
-        _zero_dgn = Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
-
-        # Đồng bộ với nghiệp vụ doanh thu thực tế:
-        # đơn đã thu tiền hoặc đang ở các bước xử lý sau thanh toán
-        # đều phải được tính vào doanh thu/giá vốn.
-        _tt_doanh_hang = (
-            DonHang.TrangThai.HOAN_THANH,
-            DonHang.TrangThai.DA_THANH_TOAN,
-            DonHang.TrangThai.DANG_CHUAN_BI,
-            DonHang.TrangThai.DANG_GIAO,
-        )
-        qs_don_co_doanh = loc_don_hang_theo_ky_doanh(
-            DonHang.objects.filter(trang_thai__in=_tt_doanh_hang),
-            str(tu)[:10],
-            str(den)[:10],
-        )
-
-        don_thuoc_qs = DonThuoc.objects.filter(don_thuoc_co_doanh_q()).filter(
-            Q(ngay_tao__gte=start, ngay_tao__lte=end)
-            | Q(ngay_cap_nhat__gte=start, ngay_cap_nhat__lte=end)
-        ).distinct()
-
-        tiem_qs = LichSuTiemChung.objects.filter(
-            trang_thai='DA_TIEM',
-            ngay_tiem__gte=tu_d,
-            ngay_tiem__lte=den_d,
-        )
-
-        _dh_tong_tien = float(qs_don_co_doanh.aggregate(s=Sum('tong_tien'))['s'] or 0)
-        _dh_tu_chi_tiet = float(
-            ChiTietDonHang.objects.filter(don_hang__in=qs_don_co_doanh).aggregate(
-                s=Sum(
-                    F('don_gia') * F('so_luong') - F('chiet_khau'),
-                    output_field=_dec_out,
-                )
-            )['s']
-            or 0
-        )
-        # Một số đơn cũ tong_tien=0 nhưng chi tiết vẫn có doanh — lấy max để khớp top SP
-        doanh_thu_don_hang = max(_dh_tong_tien, _dh_tu_chi_tiet)
-        doanh_thu_don_thuoc = float(don_thuoc_qs.aggregate(s=Sum('tong_tien'))['s'] or 0)
-        doanh_thu_tiem = float(
-            tiem_qs.aggregate(
-                s=Sum(Coalesce(F('vaccine__gia_tiem'), _zero_dgn), output_field=_dec_out)
-            )['s']
-            or 0
-        )
-        doanh_thu = doanh_thu_don_hang + doanh_thu_don_thuoc + doanh_thu_tiem
-
-        gv_dh = ChiTietDonHang.objects.filter(don_hang__in=qs_don_co_doanh).aggregate(
-            s=Sum(
-                F('so_luong') * Coalesce(F('thuoc__don_gia_nhap'), _zero_dgn),
-                output_field=_dec_out,
-            )
-        )['s'] or 0
-
-        gv_dt = ChiTietDonThuoc.objects.filter(
-            don_thuoc__in=don_thuoc_qs,
-            la_thuoc_mua_ngoai=False,
-            thuoc__isnull=False,
-        ).aggregate(
-            s=Sum(
-                F('so_luong') * Coalesce(F('thuoc__don_gia_nhap'), _zero_dgn),
-                output_field=_dec_out,
-            )
-        )['s'] or 0
-
-        # Giá vốn tiêm: 1 mũi DA_TIEM = 1 × giá nhập vaccine trên danh mục (ước tính, khớp trừ kho)
-        gv_tiem = tiem_qs.aggregate(
-            s=Sum(Coalesce(F('vaccine__gia_nhap'), _zero_dgn), output_field=_dec_out)
-        )['s'] or 0
-
-        gia_von = float(gv_dh) + float(gv_dt) + float(gv_tiem)
-        loi_nhuan = doanh_thu - gia_von
-
-        phieu_cho_duyet = PhieuNhapKho.objects.filter(da_duyet_chi=False).count()
-
-        # Theo ngày: ưu tiên ngày thanh toán, không có TT thì ngày tạo đơn
-        dh_rows = (
-            qs_don_co_doanh.annotate(
-                ngay_key=TruncDate(
-                    Coalesce(F('thanh_toan__ngay_thanh_toan'), F('ngay_tao')),
-                    tzinfo=_tz,
-                )
-            )
-            .values('ngay_key')
-            .annotate(tien=Sum('tong_tien'))
-        )
-        dh_ngay = {row['ngay_key']: float(row['tien'] or 0) for row in dh_rows if row['ngay_key']}
-
-        dt_rows = (
-            don_thuoc_qs.annotate(
-                ngay_key=TruncDate(
-                    Coalesce(F('ngay_cap_nhat'), F('ngay_thanh_toan'), F('ngay_tao')),
-                    tzinfo=_tz,
-                )
-            )
-            .values('ngay_key')
-            .annotate(tien=Sum('tong_tien'))
-        )
-        dt_ngay = {row['ngay_key']: float(row['tien'] or 0) for row in dt_rows if row['ngay_key']}
-
-        tc_rows = (
-            tiem_qs.values('ngay_tiem')
-            .annotate(
-                tien=Sum(
-                    Coalesce(F('vaccine__gia_tiem'), _zero_dgn),
-                    output_field=_dec_out,
-                )
-            )
-        )
-        tc_ngay = {row['ngay_tiem']: float(row['tien'] or 0) for row in tc_rows if row['ngay_tiem']}
-
-        all_days = sorted(set(dh_ngay) | set(dt_ngay) | set(tc_ngay))
-        theo_ngay = []
-        max_tong = 0.0
-        for day in all_days:
-            a = dh_ngay.get(day, 0.0)
-            b = dt_ngay.get(day, 0.0)
-            c = tc_ngay.get(day, 0.0)
-            tong = a + b + c
-            max_tong = max(max_tong, tong)
-            theo_ngay.append(
-                {
-                    'ngay': str(day) if day else '',
-                    'doanh_thu_don_hang': a,
-                    'doanh_thu_don_thuoc': b,
-                    'doanh_thu_tiem': c,
-                    'tong_doanh_thu': tong,
-                }
-            )
-
-        # Top thuốc theo doanh thu (đơn hàng e-commerce / quầy)
-        top_thuoc_don_hang = list(
-            ChiTietDonHang.objects.filter(don_hang__in=qs_don_co_doanh)
-            .values('thuoc__id', 'thuoc__ten_thuoc')
-            .annotate(
-                so_luong_ban=Sum('so_luong'),
-                doanh_thu=Sum(F('don_gia') * F('so_luong') - F('chiet_khau'), output_field=_dec_out),
-            )
-            .order_by('-doanh_thu')[:10]
-        )
-
-        _zero_dec = Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
-        # Top thuốc theo toa (đơn thuốc hoàn thành)
-        top_thuoc_toa = list(
-            ChiTietDonThuoc.objects.filter(
-                don_thuoc__in=don_thuoc_qs,
-                la_thuoc_mua_ngoai=False,
-                thuoc__isnull=False,
-            )
-            .values('thuoc__id', 'thuoc__ten_thuoc')
-            .annotate(
-                so_luong_ban=Sum('so_luong'),
-                doanh_thu=Sum(
-                    Coalesce(F('don_gia_tai_thoi_diem'), _zero_dec) * F('so_luong'),
-                    output_field=_dec_out,
-                ),
-            )
-            .order_by('-doanh_thu')[:10]
-        )
-
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def tai_chinh_xuat_download(request):
+    """Xuất báo cáo tài chính — endpoint Django thuần (tránh DRF ép JSON)."""
+    if not la_xem_bao_cao_tai_chinh(request.user):
         return Response(
-            {
-                'tu': tu,
-                'den': den,
-                'doanh_thu': doanh_thu,
-                'doanh_thu_don_hang': doanh_thu_don_hang,
-                'doanh_thu_don_thuoc': doanh_thu_don_thuoc,
-                'doanh_thu_tiem': doanh_thu_tiem,
-                'gia_von_uoc_tinh': gia_von,
-                'gia_von_don_hang': float(gv_dh),
-                'gia_von_don_thuoc': float(gv_dt),
-                'gia_von_tiem': float(gv_tiem),
-                'loi_nhuan_uoc_tinh': loi_nhuan,
-                'so_don_hang': qs_don_co_doanh.count(),
-                'so_don_thuoc': don_thuoc_qs.count(),
-                'so_lan_tiem': tiem_qs.count(),
-                'so_giao_dich': qs_don_co_doanh.count() + don_thuoc_qs.count() + tiem_qs.count(),
-                'theo_ngay': theo_ngay,
-                'bieu_do_max': max_tong,
-                'top_thuoc_don_hang': [
-                    {
-                        'ten_thuoc': x.get('thuoc__ten_thuoc') or '',
-                        'so_luong': x.get('so_luong_ban') or 0,
-                        'doanh_thu': float(x.get('doanh_thu') or 0),
-                    }
-                    for x in top_thuoc_don_hang
-                ],
-                'top_thuoc_theo_toa': [
-                    {
-                        'ten_thuoc': x.get('thuoc__ten_thuoc') or '',
-                        'so_luong': x.get('so_luong_ban') or 0,
-                        'doanh_thu': float(x.get('doanh_thu') or 0),
-                    }
-                    for x in top_thuoc_toa
-                ],
-                'phieu_nhap_cho_duyet_chi': phieu_cho_duyet,
-                'tieu_chi_doanh_thu': 'HOAN_THANH_DA_THANH_TOAN + DON_THUOC_CO_DOANH + TIEM_CHUNG_DA_TIEM',
-                'ghi_chu': (
-                    'Đơn hàng: Hoàn thành hoặc Đã thanh toán (đã thu). '
-                    'Đơn thuốc toa: đã thanh toán / hoàn thành (theo cờ và trạng thái). '
-                    'Tiêm chủng: các mũi đã tiêm (DA_TIEM), doanh thu = giá tiêm; giá vốn = giá nhập vaccine × 1 mũi. '
-                    'Thuốc bán: giá vốn = đơn giá nhập trên danh mục × số lượng (ước tính, chưa theo lô kho FIFO). '
-                    'Đơn hàng vào kỳ theo ngày thanh toán (hoặc ngày tạo nếu chưa có TT).'
-                ),
-            }
+            {'error': 'Không có quyền xuất báo cáo tài chính.'},
+            status=status.HTTP_403_FORBIDDEN,
         )
+    from baocao.financial_service import BaoCaoTaiChinhService
+    from baocao.exporters import export_financial
+
+    fmt = (request.query_params.get('dinh_dang') or 'xlsx').lower()
+    try:
+        params = BaoCaoTaiChinhService.parse_query_params(request.query_params)
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    data = BaoCaoTaiChinhService.thong_ke(**params)
+    return export_financial(data, request, fmt)

@@ -274,20 +274,31 @@ const AdminDashboard = {
     async loadDashboard() {
         const content = document.getElementById('admin-content');
         if (!content) return;
-        
+
+        // Đọc kỳ lọc TRƯỚC khi xóa DOM (spinner loading làm mất input adm-*)
+        const today = new Date();
+        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        let tuNgay = this._fmtLocalYMD(firstDayOfMonth);
+        let denNgay = this._fmtLocalYMD(today);
+        let tomTatQuery = `tu=${encodeURIComponent(tuNgay)}&den=${encodeURIComponent(denNgay)}&ky_loai=khoang&nhom=ngay`;
+        if (typeof BaoCaoTaiChinh !== 'undefined') {
+            const built = BaoCaoTaiChinh.buildQueryParams('adm');
+            if (!built.error && built.tu && built.den) {
+                tuNgay = built.tu;
+                denNgay = built.den;
+                tomTatQuery = new URLSearchParams(built).toString();
+            }
+        }
+
         content.innerHTML = '<div class="loading-container"><div class="spinner"></div><p>Đang tải dữ liệu...</p></div>';
         
         try {
-            const today = new Date();
-            const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-            const tuNgay = this._fmtLocalYMD(firstDayOfMonth);
-            const denNgay = this._fmtLocalYMD(today);
+            const tomTatUrl = `/thuoc/dashboard/ke-toan/tom-tat/?${tomTatQuery}`;
 
             const [rStats, rDh, rTomTat, rKho, rList] = await Promise.all([
                 this.safeApiGet('/admin/stats/'),
                 this.safeApiGet(`/don-hang/thong-ke/don-hang/?tu_ngay=${tuNgay}&den_ngay=${denNgay}`),
-                // Khớp màn Kế toán: đơn hàng + toa + tiêm (API don-hang không có tiêm chủng)
-                this.safeApiGet(`/thuoc/dashboard/ke-toan/tom-tat/?tu=${tuNgay}&den=${denNgay}`),
+                this.safeApiGet(tomTatUrl),
                 this.safeApiGet('/thuoc/dashboard/canh_bao_ton_kho/'),
                 this.safeApiGet('/don-hang/don-hang/?page=1&limit=8'),
             ]);
@@ -316,15 +327,22 @@ const AdminDashboard = {
             }
 
             const tongQuanDonHang = donHangData?.tong_quan || {};
-            const soGiaoDichThang = tomTat
-                ? Number(tomTat.so_giao_dich ?? 0)
-                : Number(tongQuanDonHang.tong_so_giao_dich_thang ?? 0);
-            const doanhThuThang = tomTat
-                ? Number(tomTat.doanh_thu ?? 0)
-                : Number(tongQuanDonHang.tong_doanh_thu ?? 0);
-            const doanhThuThangChiTiet = tomTat
-                ? `Đơn ${this.formatMoney(tomTat.doanh_thu_don_hang || 0)} · Toa ${this.formatMoney(tomTat.doanh_thu_don_thuoc || 0)} · Tiêm ${this.formatMoney(tomTat.doanh_thu_tiem || 0)}`
+            const thangStats = stats.thang_nay || {};
+            /** Ưu tiên tom-tat (đủ đơn+toa+tiêm); fallback admin/stats — không dùng API don-hang (thiếu tiêm). */
+            const doanhThuNguon = tomTat || thangStats;
+            const soGiaoDichThang = Number(
+                doanhThuNguon.so_giao_dich ?? thangStats.so_giao_dich ?? 0
+            );
+            const doanhThuThang = Number(
+                doanhThuNguon.doanh_thu ?? 0
+            );
+            const doanhThuKyLabel = tomTat?.ky_bao_cao || thangStats.ky_bao_cao || `01/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()} — hôm nay`;
+            const doanhThuThangChiTiet = doanhThuNguon
+                ? `Đơn ${this.formatMoney(doanhThuNguon.doanh_thu_don_hang || 0)} · Toa ${this.formatMoney(doanhThuNguon.doanh_thu_don_thuoc || 0)} · Tiêm ${this.formatMoney(doanhThuNguon.doanh_thu_tiem || 0)}`
                 : '';
+            if (!tomTat && rTomTat.status && rTomTat.status !== 200) {
+                console.warn('[Admin] tom-tat', rTomTat.status, rTomTat.body);
+            }
             const topSanPham = Array.isArray(donHangData?.top_san_pham) ? donHangData.top_san_pham : [];
             const thuocSapHetHang = Array.isArray(canhBaoKhoRes?.thuoc_sap_het_hang) ? canhBaoKhoRes.thuoc_sap_het_hang : [];
             const thuocSapHetHan = Array.isArray(canhBaoKhoRes?.thuoc_sap_het_han) ? canhBaoKhoRes.thuoc_sap_het_han : [];
@@ -359,12 +377,13 @@ const AdminDashboard = {
                     <div class="stat-card">
                         <div class="stat-header"><div class="stat-icon" style="background:#ede9fe;color:#5b21b6;"><i class="fas fa-file-invoice"></i></div></div>
                         <div class="stat-value">${soGiaoDichThang}</div>
-                        <div class="stat-label">Giao dịch có doanh thu (tháng)</div>
+                        <div class="stat-label">Giao dịch có doanh thu (kỳ)</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-header"><div class="stat-icon" style="background:#cffafe;color:#0e7490;"><i class="fas fa-chart-line"></i></div></div>
                         <div class="stat-value">${this.formatMoney(doanhThuThang)}</div>
-                        <div class="stat-label">Doanh thu tháng này</div>
+                        <div class="stat-label">Tổng doanh thu (kỳ)</div>
+                        <div class="text-muted" style="font-size:11px;margin-top:2px;">${this.escapeHtml(doanhThuKyLabel)}</div>
                         ${doanhThuThangChiTiet ? `<div class="text-muted" style="font-size:11px;margin-top:4px;line-height:1.35;">${doanhThuThangChiTiet}</div>` : ''}
                     </div>
                     <div class="stat-card">
@@ -378,6 +397,9 @@ const AdminDashboard = {
                         <div class="stat-label">Thuốc sắp hết hạn</div>
                     </div>
                 </div>
+
+                ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.filterBarHtml('adm', { onView: 'AdminDashboard.loadDashboard()', tu: tuNgay, den: denNgay }) : ''}
+                ${typeof BaoCaoTaiChinh !== 'undefined' && tomTat ? BaoCaoTaiChinh.chartSectionHtml('adm') : ''}
 
                 <div class="grid-2 mt-2">
                     <div class="card">
@@ -451,6 +473,9 @@ const AdminDashboard = {
                     </div>
                 </div>
             `;
+            if (typeof BaoCaoTaiChinh !== 'undefined') {
+                if (tomTat) BaoCaoTaiChinh.setChartData('adm', tomTat);
+            }
         } catch (error) {
             console.error('Error loading dashboard:', error);
             content.innerHTML = `

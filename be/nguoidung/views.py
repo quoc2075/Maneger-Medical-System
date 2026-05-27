@@ -859,8 +859,37 @@ def admin_stats_api(request):
             or 0
         )
         doanh_thu_hom_nay = float(dt_hn) + float(dh_hn) + float(tc_hn)
+
+        # Doanh thu tháng hiện tại — khớp BaoCaoTaiChinhService (đơn + toa + tiêm)
+        doanh_thu_thang_nay = 0.0
+        so_giao_dich_thang_nay = 0
+        doanh_thu_thang_don_hang = 0.0
+        doanh_thu_thang_don_thuoc = 0.0
+        doanh_thu_thang_tiem = 0.0
+        try:
+            from baocao.financial_service import BaoCaoTaiChinhService
+
+            _tk_params = BaoCaoTaiChinhService.parse_query_params({
+                'tu': start_of_month.isoformat(),
+                'den': today.isoformat(),
+                'ky_loai': 'khoang',
+                'nhom': 'ngay',
+            })
+            _tk = BaoCaoTaiChinhService.thong_ke(**_tk_params)
+            doanh_thu_thang_nay = float(_tk.get('doanh_thu') or 0)
+            so_giao_dich_thang_nay = int(_tk.get('so_giao_dich') or 0)
+            doanh_thu_thang_don_hang = float(_tk.get('doanh_thu_don_hang') or 0)
+            doanh_thu_thang_don_thuoc = float(_tk.get('doanh_thu_don_thuoc') or 0)
+            doanh_thu_thang_tiem = float(_tk.get('doanh_thu_tiem') or 0)
+        except Exception:
+            pass
     except ImportError:
         tong_don_thuoc = doanh_thu_hom_nay = 0
+        doanh_thu_thang_nay = 0.0
+        so_giao_dich_thang_nay = 0
+        doanh_thu_thang_don_hang = 0.0
+        doanh_thu_thang_don_thuoc = 0.0
+        doanh_thu_thang_tiem = 0.0
     
     # Thống kê thuốc sắp hết (nếu có app thuoc)
     try:
@@ -1006,6 +1035,12 @@ def admin_stats_api(request):
         },
         'thang_nay': {
             'benh_nhan_moi': benh_nhan_thang_nay,
+            'doanh_thu': doanh_thu_thang_nay,
+            'so_giao_dich': so_giao_dich_thang_nay,
+            'doanh_thu_don_hang': doanh_thu_thang_don_hang,
+            'doanh_thu_don_thuoc': doanh_thu_thang_don_thuoc,
+            'doanh_thu_tiem': doanh_thu_thang_tiem,
+            'ky_bao_cao': f'{start_of_month.strftime("%d/%m/%Y")} — {today.strftime("%d/%m/%Y")}',
         },
         'lich_hen': {
             'da_kham': lich_hen_da_kham,

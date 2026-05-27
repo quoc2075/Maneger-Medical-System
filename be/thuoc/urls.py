@@ -16,5 +16,6 @@ router.register(r'toa-thuoc-mau', views.ToaThuocMauViewSet)
 router.register(r'dashboard', views.DashboardViewSet, basename='dashboard')
 
 urlpatterns = [
+    path('dashboard/ke-toan/tai-chinh-xuat/', views.tai_chinh_xuat_download, name='tai-chinh-xuat'),
     path('', include(router.urls)),
 ]

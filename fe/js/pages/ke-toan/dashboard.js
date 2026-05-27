@@ -134,20 +134,11 @@ const PageKeToanDashboard = {
   },
 
   async _tomTat(host) {
-    const tu = this._firstDayOfMonth();
-    const den = this._today();
     host.innerHTML = `
       <div class="card"><div class="card-header"><strong>Tổng hợp tài chính</strong></div>
         <div class="card-body">
-          <div class="form-row form-row--inline">
-            <div class="form-group"><label class="form-label">Từ ngày</label><input type="date" id="kt-tu" class="form-control" value="${tu}"/></div>
-            <div class="form-group"><label class="form-label">Đến ngày</label><input type="date" id="kt-den" class="form-control" value="${den}"/></div>
-            <div class="form-group">
-              <label class="form-label form-label--spacer" aria-hidden="true">&nbsp;</label>
-              <button type="button" class="btn btn-primary" onclick="PageKeToanDashboard._fetchTomTat()">Xem</button>
-            </div>
-          </div>
-          <div id="kt-tomtat-body"><p class="text-muted">Chọn khoảng thời gian và bấm Xem.</p></div>
+          ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.filterBarHtml('kt', { onView: 'PageKeToanDashboard._fetchTomTat()' }) : '<p class="text-muted">Đang tải module báo cáo…</p>'}
+          <div id="kt-tomtat-body"><p class="text-muted">Chọn kỳ báo cáo và bấm Xem.</p></div>
         </div></div>`;
     await this._fetchTomTat();
   },
@@ -234,12 +225,28 @@ const PageKeToanDashboard = {
   },
 
   async _fetchTomTat() {
-    const tu = document.getElementById('kt-tu')?.value;
-    const den = document.getElementById('kt-den')?.value;
     const box = document.getElementById('kt-tomtat-body');
-    if (!tu || !den || !box) return;
+    if (!box) return;
+    let tu = '';
+    let den = '';
+    let tomTatPath = '';
+    if (typeof BaoCaoTaiChinh !== 'undefined') {
+      const built = BaoCaoTaiChinh.tomTatUrl('kt');
+      if (built.error) {
+        box.innerHTML = `<p class="text-warning">${BaoCaoTaiChinh._esc(built.error)}</p>`;
+        return;
+      }
+      tu = built.params.tu;
+      den = built.params.den;
+      tomTatPath = built.url;
+    } else {
+      tu = document.getElementById('kt-tu')?.value;
+      den = document.getElementById('kt-den')?.value;
+      if (!tu || !den) return;
+      tomTatPath = `/thuoc/dashboard/ke-toan/tom-tat/?tu=${encodeURIComponent(tu)}&den=${encodeURIComponent(den)}`;
+    }
     const [res, statsRes] = await Promise.all([
-      Http.layDanhSach(`/thuoc/dashboard/ke-toan/tom-tat/?tu=${encodeURIComponent(tu)}&den=${encodeURIComponent(den)}`),
+      Http.layDanhSach(tomTatPath),
       Http.layDanhSach(`/don-hang/thong-ke/don-hang/?tu_ngay=${encodeURIComponent(tu)}&den_ngay=${encodeURIComponent(den)}`),
     ]);
     if ((!res.ok || !res.data) && (!statsRes.ok || !statsRes.data)) {
@@ -372,15 +379,11 @@ const PageKeToanDashboard = {
       </table>
       <p class="text-muted small" style="margin:-8px 0 16px">Giá vốn thuốc/vaccine lấy theo <strong>đơn giá nhập trên danh mục</strong> × số lượng (chưa theo từng lô kho).</p>
 
-      <h3 style="font-size:15px;margin:12px 0 8px">Doanh thu theo ngày</h3>
-      <div style="overflow:auto;max-height:320px;border:1px solid var(--c-border,#e2e8f0);border-radius:8px">
-        <table class="data-table" style="width:100%;font-size:13px;min-width:520px">
-          <thead><tr>
-            <th>Ngày</th><th style="text-align:right">Đơn hàng</th><th style="text-align:right">Đơn toa</th><th style="text-align:right">Tiêm</th><th style="text-align:right">Tổng</th><th></th>
-          </tr></thead>
-          <tbody>${rowsNgay || '<tr><td colspan="6" class="text-muted">Không có phát sinh trong kỳ.</td></tr>'}</tbody>
-        </table>
-      </div>
+      ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.chartSectionHtml('kt') : ''}
+      ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.detailTableHtml(d, 'ngay') : ''}
+      ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.detailTableHtml(d, 'thang') : ''}
+      ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.detailTableHtml(d, 'nam') : ''}
+      ${typeof BaoCaoTaiChinh !== 'undefined' ? BaoCaoTaiChinh.detailTableHtml(d, 'bac_si') : ''}
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:16px">
         <div class="card" style="margin:0"><div class="card-header"><strong>Top thuốc — qua đơn hàng</strong></div>
@@ -408,6 +411,9 @@ const PageKeToanDashboard = {
         </div>
       </div>
       `;
+    if (typeof BaoCaoTaiChinh !== 'undefined' && tomTatOk) {
+      BaoCaoTaiChinh.setChartData('kt', d);
+    }
   },
 
   async _capNhatGia(host) {

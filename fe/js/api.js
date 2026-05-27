@@ -170,6 +170,73 @@ const Http = {
   async suaCuc(duongDan, body) { return Http.goi(duongDan, 'PATCH', body); },
   async xoa(duongDan)         { return Http.goi(duongDan, 'DELETE'); },
 
+  /**
+   * Tải file đính kèm (PDF, Excel, …) — trả true nếu thành công.
+   */
+  async taiFile(url) {
+    let apiUrl = url;
+    if (!apiUrl.startsWith('http')) {
+      if (!apiUrl.startsWith('/')) apiUrl = `/${apiUrl}`;
+      if (!apiUrl.startsWith('/api/')) apiUrl = `/api${apiUrl}`;
+    }
+    const qIdx = apiUrl.indexOf('?');
+    if (qIdx > -1) {
+      const pathPart = apiUrl.slice(0, qIdx);
+      const queryPart = apiUrl.slice(qIdx);
+      if (!pathPart.endsWith('/')) apiUrl = `${pathPart}/${queryPart}`;
+    } else if (!apiUrl.endsWith('/')) {
+      apiUrl += '/';
+    }
+
+    const { accessToken } = Phien.layTatCa();
+    const headers = { Accept: '*/*' };
+    if (accessToken) headers['Authorization'] = `Bearer ${accessToken}`;
+
+    try {
+      let res = await fetch(`${CFG.API_BASE}${apiUrl}`, { method: 'GET', headers });
+      if (res.status === 401 && accessToken) {
+        const laMoi = await Http.lamMoiToken();
+        if (laMoi) {
+          headers['Authorization'] = `Bearer ${Phien.lay('accessToken')}`;
+          res = await fetch(`${CFG.API_BASE}${apiUrl}`, { method: 'GET', headers });
+        } else {
+          Auth.dangXuat();
+          return false;
+        }
+      }
+      const ct = res.headers.get('content-type') || '';
+      if (!res.ok) {
+        let msg = `Không xuất được file (HTTP ${res.status})`;
+        if (ct.includes('application/json')) {
+          const err = await res.json().catch(() => ({}));
+          msg = err.error || err.detail || msg;
+        } else {
+          const txt = await res.text().catch(() => '');
+          if (txt && txt.length < 300) msg = txt;
+        }
+        Toast.hien('Lỗi xuất file', msg, 'error');
+        return false;
+      }
+      const blob = await res.blob();
+      let filename = 'bao-cao';
+      const cd = res.headers.get('content-disposition') || '';
+      const m = cd.match(/filename="?([^";\n]+)"?/);
+      if (m) filename = m[1];
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(link.href), 5000);
+      return true;
+    } catch (loi) {
+      console.error('[Http.taiFile]', loi);
+      Toast.hien('Lỗi kết nối', 'Không thể tải file báo cáo', 'error');
+      return false;
+    }
+  },
+
   async lamMoiToken() {
     const { refreshToken } = Phien.layTatCa();
     if (!refreshToken) return false;
