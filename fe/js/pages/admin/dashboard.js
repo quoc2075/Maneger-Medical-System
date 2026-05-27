@@ -283,15 +283,18 @@ const AdminDashboard = {
             const tuNgay = this._fmtLocalYMD(firstDayOfMonth);
             const denNgay = this._fmtLocalYMD(today);
 
-            const [rStats, rDh, rKho, rList] = await Promise.all([
+            const [rStats, rDh, rTomTat, rKho, rList] = await Promise.all([
                 this.safeApiGet('/admin/stats/'),
                 this.safeApiGet(`/don-hang/thong-ke/don-hang/?tu_ngay=${tuNgay}&den_ngay=${denNgay}`),
+                // Khớp màn Kế toán: đơn hàng + toa + tiêm (API don-hang không có tiêm chủng)
+                this.safeApiGet(`/thuoc/dashboard/ke-toan/tom-tat/?tu=${tuNgay}&den=${denNgay}`),
                 this.safeApiGet('/thuoc/dashboard/canh_bao_ton_kho/'),
                 this.safeApiGet('/don-hang/don-hang/?page=1&limit=8'),
             ]);
 
             const stats = rStats.ok ? rStats.body : null;
             const donHangData = this._unwrapThongKeDonHang(rDh.body);
+            const tomTat = rTomTat.ok && rTomTat.body && typeof rTomTat.body === 'object' ? rTomTat.body : null;
             const canhBaoKhoRes = rKho.ok && rKho.body ? rKho.body : {};
             const donHangGanDayRaw = rList.ok ? rList.body : null;
 
@@ -313,10 +316,15 @@ const AdminDashboard = {
             }
 
             const tongQuanDonHang = donHangData?.tong_quan || {};
-            const soGiaoDichThang = Number(
-                tongQuanDonHang.tong_so_giao_dich_thang ?? 0
-            );
-            const doanhThuThang = Number(tongQuanDonHang.tong_doanh_thu ?? 0);
+            const soGiaoDichThang = tomTat
+                ? Number(tomTat.so_giao_dich ?? 0)
+                : Number(tongQuanDonHang.tong_so_giao_dich_thang ?? 0);
+            const doanhThuThang = tomTat
+                ? Number(tomTat.doanh_thu ?? 0)
+                : Number(tongQuanDonHang.tong_doanh_thu ?? 0);
+            const doanhThuThangChiTiet = tomTat
+                ? `Đơn ${this.formatMoney(tomTat.doanh_thu_don_hang || 0)} · Toa ${this.formatMoney(tomTat.doanh_thu_don_thuoc || 0)} · Tiêm ${this.formatMoney(tomTat.doanh_thu_tiem || 0)}`
+                : '';
             const topSanPham = Array.isArray(donHangData?.top_san_pham) ? donHangData.top_san_pham : [];
             const thuocSapHetHang = Array.isArray(canhBaoKhoRes?.thuoc_sap_het_hang) ? canhBaoKhoRes.thuoc_sap_het_hang : [];
             const thuocSapHetHan = Array.isArray(canhBaoKhoRes?.thuoc_sap_het_han) ? canhBaoKhoRes.thuoc_sap_het_han : [];
@@ -351,12 +359,13 @@ const AdminDashboard = {
                     <div class="stat-card">
                         <div class="stat-header"><div class="stat-icon" style="background:#ede9fe;color:#5b21b6;"><i class="fas fa-file-invoice"></i></div></div>
                         <div class="stat-value">${soGiaoDichThang}</div>
-                        <div class="stat-label">Số đơn có doanh thu (tháng)</div>
+                        <div class="stat-label">Giao dịch có doanh thu (tháng)</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-header"><div class="stat-icon" style="background:#cffafe;color:#0e7490;"><i class="fas fa-chart-line"></i></div></div>
                         <div class="stat-value">${this.formatMoney(doanhThuThang)}</div>
                         <div class="stat-label">Doanh thu tháng này</div>
+                        ${doanhThuThangChiTiet ? `<div class="text-muted" style="font-size:11px;margin-top:4px;line-height:1.35;">${doanhThuThangChiTiet}</div>` : ''}
                     </div>
                     <div class="stat-card">
                         <div class="stat-header"><div class="stat-icon" style="background:#fef3c7;color:#92400e;"><i class="fas fa-triangle-exclamation"></i></div></div>
